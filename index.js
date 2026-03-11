@@ -13,8 +13,6 @@ const seedAdmin = require("./src/config/seedAdmin");
 const swaggerSpec = require("./src/config/swagger");
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 const requiredEnvVars = ["MYSQL_HOST", "MYSQL_DB", "MYSQL_USER", "MYSQL_PASSWORD", "JWT_SECRET"];
 const missingEnvVars = requiredEnvVars.filter((key) => !String(process.env[key] || "").trim());
@@ -60,6 +58,8 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "2mb" }));
+app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || "2mb" }));
 
 // Connect DB then seed
 connectDB();
@@ -99,6 +99,10 @@ app.use((err, req, res, next) => {
   const isCorsError = err?.message === "Not allowed by CORS";
   if (isCorsError) {
     return res.status(403).json({ message: "CORS blocked for this origin" });
+  }
+
+  if (err?.type === "entity.too.large" || Number(err?.status) === 413) {
+    return res.status(413).json({ message: "Request payload too large" });
   }
 
   if (err?.code === "LIMIT_FILE_SIZE") {
