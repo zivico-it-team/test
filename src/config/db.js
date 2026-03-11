@@ -1,5 +1,9 @@
 const { Sequelize, DataTypes } = require("sequelize");
 
+const isProduction = process.env.NODE_ENV === "production";
+const shouldSync =
+  String(process.env.DB_SYNC || (isProduction ? "false" : "true")).toLowerCase() === "true";
+
 const sequelize = new Sequelize(
   process.env.MYSQL_DB,
   process.env.MYSQL_USER,
@@ -24,12 +28,20 @@ const connectDB = async () => {
     await sequelize.authenticate();
     console.log("MySQL connected successfully");
 
-    // Create tables if not exist (dev-friendly).
-    await sequelize.sync();
-    console.log("MySQL tables synced");
+    if (shouldSync) {
+      // Create tables if not exist (dev/local).
+      await sequelize.sync();
+      console.log("MySQL tables synced");
+    } else {
+      console.log("DB sync skipped (DB_SYNC=false)");
+    }
 
     const queryInterface = sequelize.getQueryInterface();
-    const userTable = await queryInterface.describeTable("users");
+    const userTable = await queryInterface.describeTable("users").catch(() => null);
+
+    if (!userTable) {
+      return;
+    }
 
     if (userTable?.email && userTable.email.allowNull === false) {
       await queryInterface.changeColumn("users", "email", {

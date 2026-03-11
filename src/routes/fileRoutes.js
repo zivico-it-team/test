@@ -7,6 +7,7 @@ const {
   uploadFile,
   myFiles,
   myFilesCount,
+  sharedWithMe,
 } = require("../controllers/fileController");
 
 /**
@@ -136,6 +137,13 @@ router.get(
   protect,
   authorize("employee", "manager", "admin"),
   myFilesCount
+);
+
+router.get(
+  "/shared-with-me",
+  protect,
+  authorize("employee", "manager", "admin"),
+  sharedWithMe
 );
 
 module.exports = router;

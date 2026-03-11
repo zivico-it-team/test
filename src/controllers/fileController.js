@@ -2,9 +2,13 @@ const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
 const Upload = require("../models/Upload");
+const FileShare = require("../models/FileShare");
+const User = require("../models/User");
+const { Op } = require("sequelize");
+const { sequelize } = require("../config/db");
 
 // ensure uploads folder exists
-const uploadDir = path.join(process.cwd(), "uploads");
+const uploadDir = path.join(__dirname, "../../uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 // multer storage
@@ -17,7 +21,10 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
 
 // ✅ middleware for single file upload (field name: "file")
 const uploadSingle = upload.single("file");
@@ -73,9 +80,72 @@ const myFilesCount = async (req, res) => {
   }
 };
 
+// Files shared with current user
+const sharedWithMe = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const shares = await FileShare.findAll({
+      where: {
+        [Op.or]: [
+          { scope: "team" },
+          {
+            [Op.and]: [
+              { scope: "users" },
+              sequelize.literal(
+                `JSON_CONTAINS(sharedWith, ${sequelize.escape(JSON.stringify(userId))})`
+              ),
+            ],
+          },
+        ],
+      },
+      include: [
+        {
+          model: Upload,
+          as: "file",
+          required: true,
+          attributes: ["id", "originalName", "mimeType", "size", "url", "createdAt"],
+        },
+        {
+          model: User,
+          as: "sharedBy",
+          required: false,
+          attributes: ["id", "name", "email"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    const files = shares
+      .map((share) => {
+        const s = share.toJSON();
+        const file = s.file;
+        if (!file) return null;
+
+        return {
+          id: file.id,
+          _id: file.id,
+          name: file.originalName,
+          fileType: file.mimeType,
+          size: file.size,
+          url: file.url,
+          uploadedAt: file.createdAt,
+          scope: s.scope,
+          sharedBy: s.sharedBy?.name || s.sharedBy?.email || "Unknown",
+        };
+      })
+      .filter(Boolean);
+
+    res.json({ files });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 module.exports = {
   uploadSingle,
   uploadFile,
   myFiles,
   myFilesCount,
+  sharedWithMe,
 };
