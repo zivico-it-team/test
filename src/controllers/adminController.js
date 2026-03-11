@@ -1,9 +1,47 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 
+const toPlainObject = (value, fallback = {}) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  return fallback;
+};
+
+const normalizeProfessional = (value) => {
+  const professional = toPlainObject(value, {});
+  return {
+    ...professional,
+    employeeId: String(professional.employeeId ?? "").trim(),
+    designation: String(professional.designation ?? "").trim(),
+    department: String(professional.department ?? professional.teamName ?? "").trim(),
+  };
+};
+
 const toPublicUser = (u) => {
   if (!u) return null;
   const obj = typeof u.toJSON === "function" ? u.toJSON() : u;
+  const professional = normalizeProfessional(obj.professional);
+
+  obj.professional = professional;
+  obj.employeeId = obj.employeeId || professional.employeeId || "";
+  obj.designation = obj.designation || professional.designation || "";
+  obj.department = obj.department || professional.department || "";
+
   obj._id = obj.id;
   delete obj.password;
   return obj;
@@ -23,25 +61,26 @@ const sanitizeStoredImageUrl = (value) => {
 };
 
 const extractProfessional = (payload = {}, existingProfessional = {}) => {
-  const professionalPayload = payload.professional || {};
+  const professionalPayload = toPlainObject(payload.professional, {});
+  const existing = normalizeProfessional(existingProfessional);
 
   return {
-    ...existingProfessional,
+    ...existing,
     ...professionalPayload,
     employeeId:
       professionalPayload.employeeId ??
       payload.employeeId ??
-      existingProfessional.employeeId ??
+      existing.employeeId ??
       "",
     designation:
       professionalPayload.designation ??
       payload.designation ??
-      existingProfessional.designation ??
+      existing.designation ??
       "",
     department:
       professionalPayload.department ??
       payload.department ??
-      existingProfessional.department ??
+      existing.department ??
       "",
   };
 };
