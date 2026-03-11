@@ -6,10 +6,13 @@ const generateToken = require("../utils/generateToken");
 const toSessionUser = (user) => {
   const u = typeof user.toJSON === "function" ? user.toJSON() : { ...user };
   delete u.password;
+  const profileImageVersion = u.updatedAt ? new Date(u.updatedAt).getTime() : null;
 
   return {
     ...u,
     _id: u.id,
+    profilePicture: u.profileImageUrl || "",
+    profileImageVersion,
     token: generateToken(u),
   };
 };

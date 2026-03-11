@@ -41,6 +41,8 @@ const toPublicUser = (u) => {
   obj.employeeId = obj.employeeId || professional.employeeId || "";
   obj.designation = obj.designation || professional.designation || "";
   obj.department = obj.department || professional.department || "";
+  obj.profilePicture = obj.profileImageUrl || "";
+  obj.profileImageVersion = obj.updatedAt ? new Date(obj.updatedAt).getTime() : null;
 
   obj._id = obj.id;
   delete obj.password;

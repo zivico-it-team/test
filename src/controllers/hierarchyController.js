@@ -25,6 +25,7 @@ const pickUser = (u) => ({
   department: parseProfessional(u?.professional)?.department || "",
   reportingManager: parseProfessional(u?.professional)?.reportingManager || "",
   profileImageUrl: u.profileImageUrl || "",
+  profilePicture: u.profileImageUrl || "",
   profileImageFileName: u.profileImageFileName || "",
   profileImageVersion: u.updatedAt ? new Date(u.updatedAt).getTime() : null,
   updatedAt: u.updatedAt || null,

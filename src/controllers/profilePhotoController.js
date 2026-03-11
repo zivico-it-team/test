@@ -26,13 +26,18 @@ exports.uploadProfilePhoto = async (req, res) => {
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
     await user.update({ profileImageUrl: url, profileImageFileName: fileName });
+    await user.reload();
+    const profileImageVersion = user.updatedAt ? new Date(user.updatedAt).getTime() : null;
 
     return res.status(200).json({
       success: true,
       message: "Profile picture uploaded",
       data: {
         profileImageUrl: user.profileImageUrl,
+        profilePicture: user.profileImageUrl,
         profileImageFileName: user.profileImageFileName,
+        profileImageVersion,
+        updatedAt: user.updatedAt,
       },
     });
   } catch (err) {
@@ -45,7 +50,7 @@ exports.getProfilePhoto = async (req, res) => {
     const userId = req.user._id;
 
     const user = await User.findByPk(userId, {
-      attributes: ["profileImageUrl", "profileImageFileName"],
+      attributes: ["profileImageUrl", "profileImageFileName", "updatedAt"],
     });
 
     if (!user) {
@@ -58,15 +63,20 @@ exports.getProfilePhoto = async (req, res) => {
       return res.status(200).json({
         success: true,
         message: "No profile picture uploaded yet",
-        data: { profileImageUrl: "", profileImageFileName: "" },
+        data: { profileImageUrl: "", profilePicture: "", profileImageFileName: "", profileImageVersion: null, updatedAt: u.updatedAt || null },
       });
     }
+
+    const profileImageVersion = u.updatedAt ? new Date(u.updatedAt).getTime() : null;
 
     return res.status(200).json({
       success: true,
       data: {
         profileImageUrl: u.profileImageUrl,
+        profilePicture: u.profileImageUrl,
         profileImageFileName: u.profileImageFileName,
+        profileImageVersion,
+        updatedAt: u.updatedAt,
       },
     });
   } catch (err) {

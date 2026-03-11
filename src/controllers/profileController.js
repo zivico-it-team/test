@@ -58,6 +58,8 @@ const normalizeProfileUser = (u) => {
   normalized.bank = toPlainObject(normalized.bank, {});
   normalized.documents = toPlainArray(normalized.documents, []);
   normalized.skills = toPlainArray(normalized.skills, []);
+  normalized.profilePicture = normalized.profileImageUrl || "";
+  normalized.profileImageVersion = normalized.updatedAt ? new Date(normalized.updatedAt).getTime() : null;
 
   normalized._id = normalized.id;
   return normalized;
