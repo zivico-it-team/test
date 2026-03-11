@@ -8,6 +8,61 @@ const pick = (obj, keys) =>
     return acc;
   }, {});
 
+const toPlainObject = (value, fallback = {}) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  return fallback;
+};
+
+const toPlainArray = (value, fallback = []) => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  return fallback;
+};
+
+const normalizeProfileUser = (u) => {
+  const normalized = { ...u };
+
+  normalized.professional = toPlainObject(normalized.professional, {});
+  normalized.emergencyContact = toPlainObject(normalized.emergencyContact, {});
+  normalized.bank = toPlainObject(normalized.bank, {});
+  normalized.documents = toPlainArray(normalized.documents, []);
+  normalized.skills = toPlainArray(normalized.skills, []);
+
+  normalized._id = normalized.id;
+  return normalized;
+};
+
 // GET /api/profile/me
 exports.getMyProfile = async (req, res, next) => {
   try {
@@ -16,8 +71,7 @@ exports.getMyProfile = async (req, res, next) => {
     });
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    const u = user.toJSON();
-    u._id = u.id;
+    const u = normalizeProfileUser(user.toJSON());
 
     return res.json({ success: true, data: u });
   } catch (err) {
@@ -80,23 +134,31 @@ exports.updateMyProfile = async (req, res, next) => {
       updateDoc.email = normalizedEmail;
     }
 
-    if (req.body?.professional && typeof req.body.professional === "object") {
+    if (req.body?.professional !== undefined) {
       updateDoc.professional = {
-        ...(user.professional || {}),
-        ...pick(req.body.professional, professionalAllowed),
+        ...toPlainObject(user.professional, {}),
+        ...pick(toPlainObject(req.body.professional, {}), professionalAllowed),
       };
     }
-    if (req.body?.emergencyContact && typeof req.body.emergencyContact === "object") {
+    if (req.body?.emergencyContact !== undefined) {
       updateDoc.emergencyContact = {
-        ...(user.emergencyContact || {}),
-        ...pick(req.body.emergencyContact, emergencyAllowed),
+        ...toPlainObject(user.emergencyContact, {}),
+        ...pick(toPlainObject(req.body.emergencyContact, {}), emergencyAllowed),
       };
     }
-    if (req.body?.bank && typeof req.body.bank === "object") {
+    if (req.body?.bank !== undefined) {
       updateDoc.bank = {
-        ...(user.bank || {}),
-        ...pick(req.body.bank, bankAllowed),
+        ...toPlainObject(user.bank, {}),
+        ...pick(toPlainObject(req.body.bank, {}), bankAllowed),
       };
+    }
+
+    if (req.body?.documents !== undefined) {
+      updateDoc.documents = toPlainArray(req.body.documents, []);
+    }
+
+    if (req.body?.skills !== undefined) {
+      updateDoc.skills = toPlainArray(req.body.skills, []);
     }
 
     if (updateDoc.dob) updateDoc.dob = new Date(updateDoc.dob);
@@ -138,8 +200,7 @@ exports.updateMyProfile = async (req, res, next) => {
     await user.update(updateDoc);
 
     const updated = await User.findByPk(userId, { attributes: { exclude: ["password"] } });
-    const u = updated.toJSON();
-    u._id = u.id;
+    const u = normalizeProfileUser(updated.toJSON());
 
     return res.json({ success: true, message: "Profile updated", data: u });
   } catch (err) {
