@@ -1,5 +1,18 @@
 const User = require("../models/User");
 
+const parseProfessional = (value) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+};
+
 const pickUser = (u) => ({
   _id: u.id,
   id: u.id,
@@ -7,14 +20,17 @@ const pickUser = (u) => ({
   email: u.email,
   phone: u.phone || "",
   role: u.role,
-  designation: u?.professional?.designation || "",
-  teamName: u?.professional?.teamName || "",
-  department: u?.professional?.department || "",
-  reportingManager: u?.professional?.reportingManager || "",
+  designation: parseProfessional(u?.professional)?.designation || "",
+  teamName: parseProfessional(u?.professional)?.teamName || "",
+  department: parseProfessional(u?.professional)?.department || "",
+  reportingManager: parseProfessional(u?.professional)?.reportingManager || "",
   profileImageUrl: u.profileImageUrl || "",
+  profileImageFileName: u.profileImageFileName || "",
+  profileImageVersion: u.updatedAt ? new Date(u.updatedAt).getTime() : null,
+  updatedAt: u.updatedAt || null,
 });
 
-const d = (u) => String(u?.professional?.designation || "").toLowerCase();
+const d = (u) => String(parseProfessional(u?.professional)?.designation || "").toLowerCase();
 
 const isCEO = (u) => d(u).includes("ceo") || u.role === "admin";
 const isHRManager = (u) => d(u).includes("hr") && d(u).includes("manager");
@@ -24,7 +40,17 @@ const isManager = (u) => d(u).includes("manager") && !d(u).includes("hr") && !d(
 const hierarchyOverview = async (req, res) => {
   try {
     const users = (await User.findAll({
-      attributes: ["id", "name", "email", "phone", "role", "professional", "profileImageUrl"],
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "phone",
+        "role",
+        "professional",
+        "profileImageUrl",
+        "profileImageFileName",
+        "updatedAt",
+      ],
       order: [["name", "ASC"]],
     })).map((x) => x.toJSON());
 
@@ -40,14 +66,16 @@ const hierarchyOverview = async (req, res) => {
 
     const teamsMap = new Map();
     for (const e of employees) {
-      const teamName = e?.professional?.teamName || e?.professional?.department || "Unassigned";
+      const professional = parseProfessional(e?.professional);
+      const teamName = professional?.teamName || professional?.department || "Unassigned";
       if (!teamsMap.has(teamName)) teamsMap.set(teamName, []);
       teamsMap.get(teamName).push(pickUser(e));
     }
 
     const managerByTeamName = new Map();
     managers.forEach((manager) => {
-      const teamKey = String(manager?.professional?.teamName || manager?.professional?.department || "")
+      const professional = parseProfessional(manager?.professional);
+      const teamKey = String(professional?.teamName || professional?.department || "")
         .trim()
         .toLowerCase();
       if (teamKey && !managerByTeamName.has(teamKey)) {
@@ -86,6 +114,8 @@ const hierarchyOverview = async (req, res) => {
       teams: teams.length,
       hierarchyLevels,
     };
+
+    res.set("Cache-Control", "no-store");
 
     return res.json({
       view: req.user?.role === "employee" ? "employee_full" : "management_full",
