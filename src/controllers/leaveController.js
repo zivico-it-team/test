@@ -31,6 +31,27 @@ const DISPLAY_TYPE_BY_STORAGE = {
   unpaid: "Unpaid",
 };
 
+const toPlainObject = (value, fallback = {}) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  return fallback;
+};
+
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -44,7 +65,9 @@ const toLeaveLabel = (typeKey = "") => {
 };
 
 const buildUserPolicyTotals = (user = {}) => {
-  const rawPolicy = user?.professional?.leaveBalance || user?.professional?.leaveBalances || {};
+  const professional = toPlainObject(user?.professional, {});
+  const rawPolicySource = professional?.leaveBalance ?? professional?.leaveBalances ?? {};
+  const rawPolicy = toPlainObject(rawPolicySource, {});
   const normalizedPolicy = { ...EMPTY_POLICY_TOTALS };
   let hasConfiguredTypes = false;
 
@@ -54,8 +77,9 @@ const buildUserPolicyTotals = (user = {}) => {
       if (!typeKey) continue;
 
       hasConfiguredTypes = true;
+      const configObject = toPlainObject(rawConfig, null);
       const configuredTotal =
-        rawConfig && typeof rawConfig === "object" ? rawConfig.total : rawConfig;
+        configObject && typeof configObject === "object" ? configObject.total : rawConfig;
       normalizedPolicy[typeKey] = Math.max(0, toNumber(configuredTotal, 0));
     }
   }
