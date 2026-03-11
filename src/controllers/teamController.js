@@ -2,6 +2,7 @@ const { Op } = require("sequelize");
 const User = require("../models/User");
 const Attendance = require("../models/Attendance");
 const Leave = require("../models/Leave");
+const { toPublicUser, toPlainObject } = require("../utils/userNormalizer");
 
 const getDateKey = (d = new Date()) => {
   const yyyy = d.getFullYear();
@@ -10,30 +11,9 @@ const getDateKey = (d = new Date()) => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-const toPlainObject = (value, fallback = {}) => {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return fallback;
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed;
-      }
-    } catch (_) {
-      return fallback;
-    }
-  }
-  return fallback;
-};
-
 const toUserJson = (u) => {
-  const o = typeof u.toJSON === "function" ? u.toJSON() : u;
+  const o = toPublicUser(u);
   o.professional = toPlainObject(o.professional, {});
-  o.profilePicture = o.profileImageUrl || "";
-  o.profileImageVersion = o.updatedAt ? new Date(o.updatedAt).getTime() : null;
-  o._id = o.id;
-  delete o.password;
   return o;
 };
 

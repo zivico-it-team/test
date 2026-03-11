@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const dotenv = require("dotenv");
 
 // Load .env before importing modules that depend on env vars
@@ -31,13 +32,14 @@ if (String(process.env.TRUST_PROXY || "").toLowerCase() === "true") {
 const parseOrigins = (value = "") =>
   String(value)
     .split(",")
-    .map((origin) => origin.trim())
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
     .filter(Boolean);
 
 const allowedOrigins = Array.from(
   new Set([
     "https://crm.revoraglobal.com",
     "https://revoraglobal.com",
+    "https://api.revoraglobal.com",
     ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173", "http://localhost:5174"]),
     ...parseOrigins(process.env.ALLOWED_ORIGINS),
     ...parseOrigins(process.env.CLIENT_URL), // backward compatibility
@@ -58,8 +60,8 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
-app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "2mb" }));
-app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || "2mb" }));
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "5mb" }));
+app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || "5mb" }));
 
 // Connect DB then seed
 connectDB();
@@ -89,7 +91,16 @@ app.use("/api/hierarchy", require("./src/routes/hierarchyRoutes"));
 app.use("/api/leads", require("./src/routes/leadRoutes"));
 
 const uploadsPath = path.join(__dirname, "uploads");
-app.use("/uploads", express.static(uploadsPath));
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+}
+app.use(
+  "/uploads",
+  express.static(uploadsPath, {
+    etag: true,
+    maxAge: "1h",
+  })
+);
 
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });

@@ -1,53 +1,12 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
-
-const toPlainObject = (value, fallback = {}) => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return fallback;
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed;
-      }
-    } catch (error) {
-      return fallback;
-    }
-  }
-
-  return fallback;
-};
-
-const normalizeProfessional = (value) => {
-  const professional = toPlainObject(value, {});
-  return {
-    ...professional,
-    employeeId: String(professional.employeeId ?? "").trim(),
-    designation: String(professional.designation ?? "").trim(),
-    department: String(professional.department ?? professional.teamName ?? "").trim(),
-  };
-};
-
-const toPublicUser = (u) => {
-  if (!u) return null;
-  const obj = typeof u.toJSON === "function" ? u.toJSON() : u;
-  const professional = normalizeProfessional(obj.professional);
-
-  obj.professional = professional;
-  obj.employeeId = obj.employeeId || professional.employeeId || "";
-  obj.designation = obj.designation || professional.designation || "";
-  obj.department = obj.department || professional.department || "";
-  obj.profilePicture = obj.profileImageUrl || "";
-  obj.profileImageVersion = obj.updatedAt ? new Date(obj.updatedAt).getTime() : null;
-
-  obj._id = obj.id;
-  delete obj.password;
-  return obj;
-};
+const {
+  toPublicUser,
+  toPlainObject,
+  toPlainArray,
+  normalizeProfessional,
+  normalizeStoredImageUrl,
+} = require("../utils/userNormalizer");
 
 const normalizeOptionalEmail = (email) => {
   const normalized = String(email || "").trim().toLowerCase();
@@ -55,16 +14,17 @@ const normalizeOptionalEmail = (email) => {
 };
 
 const sanitizeStoredImageUrl = (value) => {
-  const normalized = String(value || "").trim();
-  if (!normalized || /^data:/i.test(normalized)) {
-    return "";
-  }
-  return normalized;
+  return normalizeStoredImageUrl(value);
 };
 
 const extractProfessional = (payload = {}, existingProfessional = {}) => {
   const professionalPayload = toPlainObject(payload.professional, {});
   const existing = normalizeProfessional(existingProfessional);
+  const payloadLeaveBalance =
+    professionalPayload.leaveBalance ||
+    professionalPayload.leaveBalances ||
+    payload.leaveBalance ||
+    payload.leaveBalances;
 
   return {
     ...existing,
@@ -84,6 +44,7 @@ const extractProfessional = (payload = {}, existingProfessional = {}) => {
       payload.department ??
       existing.department ??
       "",
+    ...(payloadLeaveBalance !== undefined ? { leaveBalance: toPlainObject(payloadLeaveBalance, {}) } : {}),
   };
 };
 
@@ -109,19 +70,20 @@ const addManager = async (req, res) => {
       return res.status(400).json({ message: "name, userName, email and password are required" });
     }
 
+    const normalizedEmail = normalizeOptionalEmail(email);
     const hashed = await bcrypt.hash(password, 10);
 
     const manager = await User.create({
       name,
-      email,
+      email: normalizedEmail,
       phone,
       userName,
       password: hashed,
       role: "manager",
       professional: extractProfessional(req.body),
-      emergencyContact: req.body.emergencyContact || {},
-      bank: req.body.bank || {},
-      documents: req.body.documents || [],
+      emergencyContact: toPlainObject(req.body.emergencyContact, {}),
+      bank: toPlainObject(req.body.bank, {}),
+      documents: toPlainArray(req.body.documents, []),
       profileImageUrl: sanitizeStoredImageUrl(req.body.profileImageUrl),
       profileImageFileName: req.body.profileImageFileName || "",
       dob: req.body.dob || null,
@@ -132,7 +94,7 @@ const addManager = async (req, res) => {
       state: req.body.state || "",
       postalCode: req.body.postalCode || "",
       bio: req.body.bio || "",
-      skills: req.body.skills || [],
+      skills: toPlainArray(req.body.skills, []),
     });
 
     res.status(201).json(toPublicUser(manager));
@@ -162,9 +124,9 @@ const addEmployee = async (req, res) => {
       password: hashed,
       role: "employee",
       professional: extractProfessional(req.body),
-      emergencyContact: req.body.emergencyContact || {},
-      bank: req.body.bank || {},
-      documents: req.body.documents || [],
+      emergencyContact: toPlainObject(req.body.emergencyContact, {}),
+      bank: toPlainObject(req.body.bank, {}),
+      documents: toPlainArray(req.body.documents, []),
       profileImageUrl: sanitizeStoredImageUrl(req.body.profileImageUrl),
       profileImageFileName: req.body.profileImageFileName || "",
       dob: req.body.dob || null,
@@ -175,7 +137,7 @@ const addEmployee = async (req, res) => {
       state: req.body.state || "",
       postalCode: req.body.postalCode || "",
       bio: req.body.bio || "",
-      skills: req.body.skills || [],
+      skills: toPlainArray(req.body.skills, []),
     });
 
     res.status(201).json(toPublicUser(employee));
@@ -254,7 +216,10 @@ const updateManager = async (req, res) => {
     }
 
     if (req.body.profileImageUrl !== undefined) {
-      update.profileImageUrl = sanitizeStoredImageUrl(req.body.profileImageUrl);
+      const nextImage = sanitizeStoredImageUrl(req.body.profileImageUrl);
+      if (nextImage || req.body.profileImageUrl === null) {
+        update.profileImageUrl = nextImage;
+      }
     }
 
     if (req.body.email !== undefined) {
@@ -268,6 +233,22 @@ const updateManager = async (req, res) => {
       req.body.department !== undefined
     ) {
       update.professional = extractProfessional(req.body, manager.professional || {});
+    }
+
+    if (req.body.documents !== undefined) {
+      update.documents = toPlainArray(req.body.documents, []);
+    }
+
+    if (req.body.bank !== undefined) {
+      update.bank = toPlainObject(req.body.bank, {});
+    }
+
+    if (req.body.emergencyContact !== undefined) {
+      update.emergencyContact = toPlainObject(req.body.emergencyContact, {});
+    }
+
+    if (req.body.skills !== undefined) {
+      update.skills = toPlainArray(req.body.skills, []);
     }
 
     if (req.body.password && String(req.body.password).trim()) {
@@ -369,7 +350,10 @@ const updateEmployee = async (req, res) => {
     }
 
     if (req.body.profileImageUrl !== undefined) {
-      update.profileImageUrl = sanitizeStoredImageUrl(req.body.profileImageUrl);
+      const nextImage = sanitizeStoredImageUrl(req.body.profileImageUrl);
+      if (nextImage || req.body.profileImageUrl === null) {
+        update.profileImageUrl = nextImage;
+      }
     }
 
     if (req.body.email !== undefined) {
@@ -383,6 +367,22 @@ const updateEmployee = async (req, res) => {
       req.body.department !== undefined
     ) {
       update.professional = extractProfessional(req.body, employee.professional || {});
+    }
+
+    if (req.body.documents !== undefined) {
+      update.documents = toPlainArray(req.body.documents, []);
+    }
+
+    if (req.body.bank !== undefined) {
+      update.bank = toPlainObject(req.body.bank, {});
+    }
+
+    if (req.body.emergencyContact !== undefined) {
+      update.emergencyContact = toPlainObject(req.body.emergencyContact, {});
+    }
+
+    if (req.body.skills !== undefined) {
+      update.skills = toPlainArray(req.body.skills, []);
     }
 
     if (req.body.password && String(req.body.password).trim()) {
@@ -459,7 +459,10 @@ const updateAdminProfile = async (req, res) => {
     }
 
     if (req.body.profileImageUrl !== undefined) {
-      update.profileImageUrl = sanitizeStoredImageUrl(req.body.profileImageUrl);
+      const nextImage = sanitizeStoredImageUrl(req.body.profileImageUrl);
+      if (nextImage || req.body.profileImageUrl === null) {
+        update.profileImageUrl = nextImage;
+      }
     }
 
     if (req.body.email && req.body.email !== admin.email) {

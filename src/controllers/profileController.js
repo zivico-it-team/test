@@ -1,5 +1,6 @@
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
+const { toPublicUser, toPlainObject, toPlainArray } = require("../utils/userNormalizer");
 
 // helper: allowed fields only (security)
 const pick = (obj, keys) =>
@@ -8,60 +9,9 @@ const pick = (obj, keys) =>
     return acc;
   }, {});
 
-const toPlainObject = (value, fallback = {}) => {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return fallback;
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed;
-      }
-    } catch (_) {
-      return fallback;
-    }
-  }
-
-  return fallback;
-};
-
-const toPlainArray = (value, fallback = []) => {
-  if (Array.isArray(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return fallback;
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-    } catch (_) {
-      return fallback;
-    }
-  }
-
-  return fallback;
-};
-
 const normalizeProfileUser = (u) => {
-  const normalized = { ...u };
-
+  const normalized = toPublicUser(u);
   normalized.professional = toPlainObject(normalized.professional, {});
-  normalized.emergencyContact = toPlainObject(normalized.emergencyContact, {});
-  normalized.bank = toPlainObject(normalized.bank, {});
-  normalized.documents = toPlainArray(normalized.documents, []);
-  normalized.skills = toPlainArray(normalized.skills, []);
-  normalized.profilePicture = normalized.profileImageUrl || "";
-  normalized.profileImageVersion = normalized.updatedAt ? new Date(normalized.updatedAt).getTime() : null;
-
-  normalized._id = normalized.id;
   return normalized;
 };
 

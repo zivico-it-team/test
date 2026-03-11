@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const { toPublicUser } = require("../utils/userNormalizer");
 
 const parseProfessional = (value) => {
   if (value && typeof value === "object" && !Array.isArray(value)) return value;
@@ -13,23 +14,26 @@ const parseProfessional = (value) => {
   return {};
 };
 
-const pickUser = (u) => ({
-  _id: u.id,
-  id: u.id,
-  name: u.name,
-  email: u.email,
-  phone: u.phone || "",
-  role: u.role,
-  designation: parseProfessional(u?.professional)?.designation || "",
-  teamName: parseProfessional(u?.professional)?.teamName || "",
-  department: parseProfessional(u?.professional)?.department || "",
-  reportingManager: parseProfessional(u?.professional)?.reportingManager || "",
-  profileImageUrl: u.profileImageUrl || "",
-  profilePicture: u.profileImageUrl || "",
-  profileImageFileName: u.profileImageFileName || "",
-  profileImageVersion: u.updatedAt ? new Date(u.updatedAt).getTime() : null,
-  updatedAt: u.updatedAt || null,
-});
+const pickUser = (u) => {
+  const normalized = toPublicUser(u);
+  return {
+    _id: normalized._id,
+    id: normalized.id,
+    name: normalized.name,
+    email: normalized.email,
+    phone: normalized.phone || "",
+    role: normalized.role,
+    designation: parseProfessional(normalized?.professional)?.designation || "",
+    teamName: parseProfessional(normalized?.professional)?.teamName || "",
+    department: parseProfessional(normalized?.professional)?.department || "",
+    reportingManager: parseProfessional(normalized?.professional)?.reportingManager || "",
+    profileImageUrl: normalized.profileImageUrl || "",
+    profilePicture: normalized.profilePicture || "",
+    profileImageFileName: normalized.profileImageFileName || "",
+    profileImageVersion: normalized.profileImageVersion || null,
+    updatedAt: normalized.updatedAt || null,
+  };
+};
 
 const d = (u) => String(parseProfessional(u?.professional)?.designation || "").toLowerCase();
 

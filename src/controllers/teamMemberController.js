@@ -1,6 +1,7 @@
 const { Op } = require("sequelize");
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
+const { toPublicUser } = require("../utils/userNormalizer");
 
 const createTeamMember = async (req, res) => {
   try {
@@ -76,11 +77,7 @@ const createTeamMember = async (req, res) => {
       professional,
     });
 
-    const u = user.toJSON();
-    u._id = u.id;
-    delete u.password;
-
-    res.status(201).json({ message: "Team member created", user: u });
+    res.status(201).json({ message: "Team member created", user: toPublicUser(user) });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

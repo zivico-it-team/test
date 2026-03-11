@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const { normalizeStoredImageUrl } = require("../utils/userNormalizer");
 
 const allowedImageMime = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
 
@@ -17,10 +18,10 @@ exports.uploadProfilePhoto = async (req, res) => {
       });
     }
 
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
     const fileName = req.file.filename;
-    const url = `/uploads/${fileName}`;
+    const url = normalizeStoredImageUrl(`/uploads/${fileName}`);
 
     const user = await User.findByPk(userId);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
@@ -32,6 +33,7 @@ exports.uploadProfilePhoto = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Profile picture uploaded",
+      photoUrl: user.profileImageUrl,
       data: {
         profileImageUrl: user.profileImageUrl,
         profilePicture: user.profileImageUrl,
@@ -47,7 +49,7 @@ exports.uploadProfilePhoto = async (req, res) => {
 
 exports.getProfilePhoto = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
 
     const user = await User.findByPk(userId, {
       attributes: ["profileImageUrl", "profileImageFileName", "updatedAt"],
@@ -59,7 +61,9 @@ exports.getProfilePhoto = async (req, res) => {
 
     const u = user.toJSON();
 
-    if (!u.profileImageUrl) {
+    const profileImageUrl = normalizeStoredImageUrl(u.profileImageUrl);
+
+    if (!profileImageUrl) {
       return res.status(200).json({
         success: true,
         message: "No profile picture uploaded yet",
@@ -71,9 +75,10 @@ exports.getProfilePhoto = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      photoUrl: profileImageUrl,
       data: {
-        profileImageUrl: u.profileImageUrl,
-        profilePicture: u.profileImageUrl,
+        profileImageUrl,
+        profilePicture: profileImageUrl,
         profileImageFileName: u.profileImageFileName,
         profileImageVersion,
         updatedAt: u.updatedAt,

@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { toPlainObject } = require("../utils/userNormalizer");
 
 const normalizeValue = (value) => String(value || "").trim().toLowerCase();
 
@@ -12,9 +13,10 @@ const isHRStaff = (user) => {
     return false;
   }
 
-  const department = normalizeValue(user?.professional?.department);
-  const teamName = normalizeValue(user?.professional?.teamName);
-  const designation = normalizeValue(user?.professional?.designation);
+  const professional = toPlainObject(user?.professional, {});
+  const department = normalizeValue(professional?.department);
+  const teamName = normalizeValue(professional?.teamName);
+  const designation = normalizeValue(professional?.designation);
 
   return (
     department === "hr" ||
