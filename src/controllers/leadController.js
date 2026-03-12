@@ -45,10 +45,6 @@ const assignmentScopeForEmployee = (user) => {
 
 const getBaseWhere = (req) => {
   if (req.user?.role === "employee") {
-    const scope = String(req.query?.scope || "").trim().toLowerCase();
-    if (scope === "shared") {
-      return {};
-    }
     return assignmentScopeForEmployee(req.user);
   }
 
@@ -658,6 +654,20 @@ const getAssignLeads = async (req, res) => {
           { assignedTo: null },
           { assignedTo: "" },
           { assignedTo: "Unassigned" },
+        ],
+      });
+    } else if (filter === "new") {
+      where = mergeWhere(where, {
+        [Op.or]: [
+          { stage: { [Op.in]: ["New"] } },
+          { tag: { [Op.in]: ["New", "New Lead"] } },
+        ],
+      });
+    } else if (filter === "sale_done" || filter === "sale done" || filter === "saledone") {
+      where = mergeWhere(where, {
+        [Op.or]: [
+          { stage: { [Op.in]: ["Converted", "Sale Done"] } },
+          { tag: { [Op.in]: ["Sale Done", "Converted"] } },
         ],
       });
     }
