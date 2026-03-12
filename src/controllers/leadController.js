@@ -18,6 +18,12 @@ const mapLead = (lead) => {
     assignedTo: obj?.assignedTo || "",
     assignedToId: obj?.assignedToId || "",
     preferredLanguage: obj?.preferredLanguage || "",
+    followUpSetById: obj?.followUpSetById || "",
+    followUpSetBy: obj?.followUpSetBy || "",
+    followUpSetAt: obj?.followUpSetAt || null,
+    followUpHandled: Boolean(obj?.followUpHandled),
+    followUpHandledAt: obj?.followUpHandledAt || null,
+    followUpHandledById: obj?.followUpHandledById || "",
   };
 };
 
@@ -39,6 +45,10 @@ const assignmentScopeForEmployee = (user) => {
 
 const getBaseWhere = (req) => {
   if (req.user?.role === "employee") {
+    const scope = String(req.query?.scope || "").trim().toLowerCase();
+    if (scope === "shared") {
+      return {};
+    }
     return assignmentScopeForEmployee(req.user);
   }
 
@@ -297,6 +307,28 @@ const updateMasterData = async (req, res) => {
           : lead.complianceType,
     };
 
+    const previousFollowUpValue = normalizeCompareValue("followUp", lead.followUp);
+    const nextFollowUpValue = normalizeCompareValue("followUp", nextValues.followUp);
+    const followUpChanged = previousFollowUpValue !== nextFollowUpValue;
+
+    if (followUpChanged) {
+      const actorId = String(req.user?._id || req.user?.id || "");
+      const actorName = getActorName(req);
+      if (nextFollowUpValue) {
+        nextValues.followUpSetById = actorId;
+        nextValues.followUpSetBy = actorName;
+        nextValues.followUpSetAt = new Date();
+      } else {
+        nextValues.followUpSetById = "";
+        nextValues.followUpSetBy = "";
+        nextValues.followUpSetAt = null;
+      }
+
+      nextValues.followUpHandled = false;
+      nextValues.followUpHandledAt = null;
+      nextValues.followUpHandledById = "";
+    }
+
     const changedFields = Object.keys(MASTER_DATA_FIELD_LABELS).filter(
       (field) =>
         normalizeCompareValue(field, lead[field]) !== normalizeCompareValue(field, nextValues[field])
@@ -392,6 +424,86 @@ const listTimeline = async (req, res) => {
     return res.json({ items: items.map(mapTimeline) });
   } catch (err) {
     return res.status(500).json({ message: err.message || "Failed to load lead timeline" });
+  }
+};
+
+const listDueReminders = async (req, res) => {
+  try {
+    const userId = String(req.user?._id || req.user?.id || "");
+    if (!userId) {
+      return res.json({ items: [] });
+    }
+
+    const leads = await Lead.findAll({
+      where: {
+        followUpSetById: userId,
+        followUpHandled: false,
+        followUp: { [Op.notIn]: ["", "N/A"] },
+      },
+      order: [["updatedAt", "DESC"]],
+      limit: 500,
+    });
+
+    const now = Date.now();
+    const items = leads
+      .map((lead) => {
+        const mappedLead = mapLead(lead);
+        const reminderDate = new Date(mappedLead.followUp);
+        if (Number.isNaN(reminderDate.getTime())) {
+          return null;
+        }
+
+        const notifyAt = reminderDate.getTime() - 10 * 60 * 1000;
+        if (now < notifyAt) {
+          return null;
+        }
+
+        return {
+          id: mappedLead.id,
+          name: mappedLead.name,
+          followUp: mappedLead.followUp,
+          followUpISO: reminderDate.toISOString(),
+          notifyAtISO: new Date(notifyAt).toISOString(),
+          reminderKey: `${userId}_${mappedLead.id}_${reminderDate.toISOString()}`,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(a.followUpISO).getTime() - new Date(b.followUpISO).getTime());
+
+    return res.json({ items });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || "Failed to load due reminders" });
+  }
+};
+
+const markReminderHandled = async (req, res) => {
+  try {
+    const lead = await ensureLead(req.params.id, res);
+    if (!lead) return;
+
+    const userId = String(req.user?._id || req.user?.id || "");
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (String(lead.followUpSetById || "") !== userId) {
+      return res.status(403).json({ message: "You can only handle reminders you created" });
+    }
+
+    if (!String(lead.followUp || "").trim() || String(lead.followUp).trim() === "N/A") {
+      return res.status(400).json({ message: "No active reminder set for this lead" });
+    }
+
+    if (!lead.followUpHandled) {
+      lead.followUpHandled = true;
+      lead.followUpHandledAt = new Date();
+      lead.followUpHandledById = userId;
+      await lead.save();
+    }
+
+    return res.json({ lead: mapLead(lead) });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || "Failed to mark reminder handled" });
   }
 };
 
@@ -565,6 +677,8 @@ module.exports = {
   updateTag,
   updateStage,
   listTimeline,
+  listDueReminders,
+  markReminderHandled,
   deleteLead,
   getAssignEmployees,
   getAssignStats,

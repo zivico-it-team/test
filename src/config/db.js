@@ -61,6 +61,48 @@ const connectDB = async () => {
       });
       console.log("Users.role enum updated with hr");
     }
+
+    const leadTable = await queryInterface.describeTable("leads").catch(() => null);
+    if (!leadTable) {
+      return;
+    }
+
+    const ensureLeadColumn = async (name, definition) => {
+      if (leadTable?.[name]) return;
+      await queryInterface.addColumn("leads", name, definition);
+      console.log(`Leads.${name} column added`);
+    };
+
+    await ensureLeadColumn("followUpSetById", {
+      type: DataTypes.STRING(64),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureLeadColumn("followUpSetBy", {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureLeadColumn("followUpSetAt", {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    });
+    await ensureLeadColumn("followUpHandled", {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    });
+    await ensureLeadColumn("followUpHandledAt", {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    });
+    await ensureLeadColumn("followUpHandledById", {
+      type: DataTypes.STRING(64),
+      allowNull: false,
+      defaultValue: "",
+    });
   } catch (error) {
     console.error("MySQL connection failed", error);
     process.exit(1);
