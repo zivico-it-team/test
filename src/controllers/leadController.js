@@ -445,11 +445,19 @@ const listDueReminders = async (req, res) => {
     });
 
     const now = Date.now();
+    const expiredLeadIds = [];
+
     const items = leads
       .map((lead) => {
         const mappedLead = mapLead(lead);
         const reminderDate = new Date(mappedLead.followUp);
         if (Number.isNaN(reminderDate.getTime())) {
+          return null;
+        }
+
+        // Auto-reset reminders once reminder time has passed.
+        if (now >= reminderDate.getTime()) {
+          expiredLeadIds.push(mappedLead.id);
           return null;
         }
 
@@ -469,6 +477,23 @@ const listDueReminders = async (req, res) => {
       })
       .filter(Boolean)
       .sort((a, b) => new Date(a.followUpISO).getTime() - new Date(b.followUpISO).getTime());
+
+    if (expiredLeadIds.length > 0) {
+      await Lead.update(
+        {
+          followUp: "",
+          followUpSetById: "",
+          followUpSetBy: "",
+          followUpSetAt: null,
+          followUpHandled: true,
+          followUpHandledAt: new Date(),
+          followUpHandledById: userId,
+        },
+        {
+          where: { id: { [Op.in]: expiredLeadIds } },
+        }
+      );
+    }
 
     return res.json({ items });
   } catch (err) {
@@ -508,13 +533,36 @@ const markReminderHandled = async (req, res) => {
 };
 
 const deleteLead = async (req, res) => {
+  let transaction = null;
   try {
-    const deleted = await Lead.destroy({ where: { id: req.params.id } });
-    if (!deleted) {
+    transaction = await Lead.sequelize.transaction();
+
+    const lead = await Lead.findByPk(req.params.id, { transaction });
+    if (!lead) {
+      await transaction.rollback();
+      transaction = null;
       return res.status(404).json({ message: "Lead not found" });
     }
+
+    // Remove dependent timeline rows first to satisfy FK constraints.
+    await LeadTimeline.destroy({
+      where: { leadId: lead.id },
+      transaction,
+    });
+
+    await lead.destroy({ transaction });
+    await transaction.commit();
+    transaction = null;
+
     return res.json({ message: "Lead deleted successfully" });
   } catch (err) {
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch {
+        // ignore rollback errors and return original failure
+      }
+    }
     return res.status(500).json({ message: err.message || "Failed to delete lead" });
   }
 };
