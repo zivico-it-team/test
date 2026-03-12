@@ -45,6 +45,10 @@ const assignmentScopeForEmployee = (user) => {
 
 const getBaseWhere = (req) => {
   if (req.user?.role === "employee") {
+  const scope = String(req.query?.scope || "").trim().toLowerCase();
+    if (scope === "shared") {
+      return {};
+    }
     return assignmentScopeForEmployee(req.user);
   }
 
