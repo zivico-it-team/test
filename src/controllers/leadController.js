@@ -427,6 +427,33 @@ const listTimeline = async (req, res) => {
   }
 };
 
+const addComment = async (req, res) => {
+  try {
+    const lead = await ensureLead(req.params.id, res);
+    if (!lead) return;
+
+    const comment = String(req.body?.comment || "").trim();
+    if (!comment) {
+      return res.status(400).json({ message: "Comment is required" });
+    }
+
+    const timelineEntry = await addLeadTimeline({
+      req,
+      leadId: lead.id,
+      action: "Comment Added",
+      details: comment,
+    });
+
+    // Keep latest comment in lead master record for backward compatibility.
+    lead.comment = comment;
+    await lead.save();
+
+    return res.status(201).json({ comment: timelineEntry, lead: mapLead(lead) });
+  } catch (err) {
+    return res.status(500).json({ message: err.message || "Failed to add comment" });
+  }
+};
+
 const listDueReminders = async (req, res) => {
   try {
     const userId = String(req.user?._id || req.user?.id || "");
@@ -519,12 +546,15 @@ const markReminderHandled = async (req, res) => {
       return res.status(400).json({ message: "No active reminder set for this lead" });
     }
 
-    if (!lead.followUpHandled) {
-      lead.followUpHandled = true;
-      lead.followUpHandledAt = new Date();
-      lead.followUpHandledById = userId;
-      await lead.save();
-    }
+    // Viewing from reminder popup is treated as completing that reminder.
+    lead.followUp = "";
+    lead.followUpSetById = "";
+    lead.followUpSetBy = "";
+    lead.followUpSetAt = null;
+    lead.followUpHandled = true;
+    lead.followUpHandledAt = new Date();
+    lead.followUpHandledById = userId;
+    await lead.save();
 
     return res.json({ lead: mapLead(lead) });
   } catch (err) {
@@ -725,6 +755,7 @@ module.exports = {
   updateTag,
   updateStage,
   listTimeline,
+  addComment,
   listDueReminders,
   markReminderHandled,
   deleteLead,

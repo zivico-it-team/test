@@ -10,6 +10,7 @@ const {
   updateTag,
   updateStage,
   listTimeline,
+  addComment,
   listDueReminders,
   markReminderHandled,
   deleteLead,
@@ -33,6 +34,7 @@ router.post("/unassign", protect, authorize("admin", "manager"), unassignLeads);
 router.get("/reminders/due", protect, authorize("admin", "manager", "employee"), listDueReminders);
 router.patch("/:id/reminder/handled", protect, authorize("admin", "manager", "employee"), markReminderHandled);
 router.get("/:id/timeline", protect, authorize("admin", "manager", "employee"), listTimeline);
+router.post("/:id/comments", protect, authorize("admin", "manager", "employee"), addComment);
 
 router.patch("/:id/bookmark", protect, authorize("admin", "manager", "employee"), toggleBookmark);
 router.patch("/:id/archive", protect, authorize("admin", "manager", "employee"), toggleArchive);
