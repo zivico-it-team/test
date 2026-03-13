@@ -11,6 +11,8 @@ const getTransporter = () => {
   const port = Number(process.env.MAIL_PORT || 587);
   const user = String(process.env.MAIL_USER || "").trim();
   const pass = String(process.env.MAIL_PASS || "").trim();
+  const secureEnv = String(process.env.MAIL_SECURE || "").trim().toLowerCase();
+  const secure = secureEnv ? secureEnv === "true" : port === 465;
 
   if (!host || !port || !user || !pass) {
     throw new Error("MAIL_HOST, MAIL_PORT, MAIL_USER and MAIL_PASS must be configured");
@@ -19,7 +21,7 @@ const getTransporter = () => {
   transporter = nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure,
     auth: {
       user,
       pass,

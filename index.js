@@ -21,6 +21,16 @@ if (missingEnvVars.length > 0) {
   console.warn("Missing environment variables:", missingEnvVars.join(", "));
 }
 
+const requiredResetMailEnvVars = ["CLIENT_URL", "MAIL_HOST", "MAIL_PORT", "MAIL_USER", "MAIL_PASS", "MAIL_FROM"];
+const missingResetMailEnvVars = requiredResetMailEnvVars.filter((key) => !String(process.env[key] || "").trim());
+if (missingResetMailEnvVars.length > 0) {
+  console.warn(
+    "Password reset email config is incomplete. Missing:",
+    missingResetMailEnvVars.join(", "),
+    "- forgot-password emails will not be delivered until these are set."
+  );
+}
+
 if (String(process.env.JWT_SECRET || "").trim() === "change_this_secret_to_a_long_random_string") {
   console.warn("JWT_SECRET is using a default placeholder. Set a strong secret in production.");
 }

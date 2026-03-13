@@ -140,7 +140,13 @@ const forgotPassword = async (req, res) => {
         expiresMinutes: RESET_TOKEN_EXPIRY_MINUTES,
       });
     } catch (mailError) {
-      console.error("Failed to send password reset email:", mailError.message);
+      console.error("Failed to send password reset email", {
+        email: user.email,
+        error: mailError.message,
+        code: mailError.code || null,
+        command: mailError.command || null,
+        response: mailError.response || null,
+      });
     }
 
     return res.status(200).json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
