@@ -40,7 +40,7 @@ const login = async (req, res) => {
 
 const register = async (req, res) => {
   try {
-    const { name, email, password, phone, address, userName, role } = req.body;
+    const { name, email, password, phone, address, userName } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: "name, email, password are required" });
@@ -56,9 +56,6 @@ const register = async (req, res) => {
         .trim()
         .replace(/\s+/g, "")
         .toLowerCase();
-    const requestedRole = String(role || "employee").trim().toLowerCase();
-    const allowedSelfRegisterRoles = new Set(["employee", "manager"]);
-    const resolvedRole = allowedSelfRegisterRoles.has(requestedRole) ? requestedRole : "employee";
 
     if (!/^[a-z0-9._-]{3,30}$/.test(resolvedUserName)) {
       return res.status(400).json({
@@ -85,7 +82,7 @@ const register = async (req, res) => {
       password: hashedPassword,
       phone: phone || "",
       addressLine: address || "",
-      role: resolvedRole,
+      role: "employee",
     });
 
     return res.status(201).json(toSessionUser(user));
