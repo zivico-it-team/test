@@ -1,6 +1,6 @@
 const express = require("express");
 
-const { protect, authorize } = require("../middleware/authMiddleware");
+const { protect, authorize, forbidHRLeadAccess } = require("../middleware/authMiddleware");
 const {
   listLeads,
   createLead,
@@ -23,24 +23,24 @@ const {
 
 const router = express.Router();
 
-router.get("/", protect, authorize("admin", "manager", "employee"), listLeads);
-router.post("/", protect, authorize("admin", "manager"), createLead);
+router.get("/", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), listLeads);
+router.post("/", protect, forbidHRLeadAccess, authorize("admin", "manager"), createLead);
 
-router.get("/assign/employees", protect, authorize("admin", "manager"), getAssignEmployees);
-router.get("/assign/stats", protect, authorize("admin", "manager"), getAssignStats);
-router.get("/assign", protect, authorize("admin", "manager"), getAssignLeads);
-router.post("/assign", protect, authorize("admin", "manager"), assignLeads);
-router.post("/unassign", protect, authorize("admin", "manager"), unassignLeads);
-router.get("/reminders/due", protect, authorize("admin", "manager", "employee"), listDueReminders);
-router.patch("/:id/reminder/handled", protect, authorize("admin", "manager", "employee"), markReminderHandled);
-router.get("/:id/timeline", protect, authorize("admin", "manager", "employee"), listTimeline);
-router.post("/:id/comments", protect, authorize("admin", "manager", "employee"), addComment);
+router.get("/assign/employees", protect, forbidHRLeadAccess, authorize("admin", "manager"), getAssignEmployees);
+router.get("/assign/stats", protect, forbidHRLeadAccess, authorize("admin", "manager"), getAssignStats);
+router.get("/assign", protect, forbidHRLeadAccess, authorize("admin", "manager"), getAssignLeads);
+router.post("/assign", protect, forbidHRLeadAccess, authorize("admin", "manager"), assignLeads);
+router.post("/unassign", protect, forbidHRLeadAccess, authorize("admin", "manager"), unassignLeads);
+router.get("/reminders/due", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), listDueReminders);
+router.patch("/:id/reminder/handled", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), markReminderHandled);
+router.get("/:id/timeline", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), listTimeline);
+router.post("/:id/comments", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), addComment);
 
-router.patch("/:id/bookmark", protect, authorize("admin", "manager", "employee"), toggleBookmark);
-router.patch("/:id/archive", protect, authorize("admin", "manager", "employee"), toggleArchive);
-router.put("/:id/master-data", protect, authorize("admin", "manager", "employee"), updateMasterData);
-router.put("/:id/tag", protect, authorize("admin", "manager", "employee"), updateTag);
-router.put("/:id/stage", protect, authorize("admin", "manager", "employee"), updateStage);
-router.delete("/:id", protect, authorize("admin", "manager"), deleteLead);
+router.patch("/:id/bookmark", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), toggleBookmark);
+router.patch("/:id/archive", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), toggleArchive);
+router.put("/:id/master-data", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), updateMasterData);
+router.put("/:id/tag", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), updateTag);
+router.put("/:id/stage", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), updateStage);
+router.delete("/:id", protect, forbidHRLeadAccess, authorize("admin", "manager"), deleteLead);
 
 module.exports = router;

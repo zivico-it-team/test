@@ -83,4 +83,16 @@ const authorizeAdminOrHR = (req, res, next) => {
   return res.status(403).json({ message: "Access denied" });
 };
 
-module.exports = { protect, authorize, authorizeAdminOrHR, isHRStaff };
+const forbidHRLeadAccess = (req, res, next) => {
+  if (!req.user) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  if (req.user.role === "hr" || isHRStaff(req.user)) {
+    return res.status(403).json({ message: "Lead module is not available for HR users" });
+  }
+
+  return next();
+};
+
+module.exports = { protect, authorize, authorizeAdminOrHR, isHRStaff, forbidHRLeadAccess };
