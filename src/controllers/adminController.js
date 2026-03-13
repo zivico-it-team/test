@@ -482,7 +482,7 @@ const updateAdminProfile = async (req, res) => {
       update.professional = {
         ...existingProfessional,
         ...mergedProfessional,
-        designation: existingProfessional.designation || "",
+        designation: mergedProfessional.designation || existingProfessional.designation || "",
       };
     }
 
