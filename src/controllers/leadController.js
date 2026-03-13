@@ -3,6 +3,7 @@ const { Op } = require("sequelize");
 const Lead = require("../models/Lead");
 const LeadTimeline = require("../models/LeadTimeline");
 const User = require("../models/User");
+const { normalizeStoredImageUrl } = require("../utils/userNormalizer");
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const toInt = (value, fallback) => {
@@ -83,15 +84,62 @@ const MASTER_DATA_FIELD_LABELS = {
   complianceType: "Compliance Type",
 };
 
-const mapTimeline = (entry) => {
+const mapTimeline = (entry, actorProfile = null) => {
   const obj = typeof entry?.toJSON === "function" ? entry.toJSON() : entry;
+  const actorObj = actorProfile && typeof actorProfile?.toJSON === "function" ? actorProfile.toJSON() : actorProfile;
+  const actorImage = normalizeStoredImageUrl(actorObj?.profileImageUrl || "");
+  const actorImageVersion = actorObj?.updatedAt ? new Date(actorObj.updatedAt).getTime() : null;
+
   return {
     id: obj?.id,
     action: obj?.action || "",
     details: obj?.details || "",
     changedBy: obj?.changedBy || "System",
     at: obj?.changedAt || obj?.createdAt || null,
+    changedByAvatar: actorImage,
+    changedByProfileImageUrl: actorImage,
+    changedByProfileImageVersion: actorImageVersion,
   };
+};
+
+const normalizeActorValue = (value) => String(value || "").trim().toLowerCase();
+
+const buildActorProfileLookup = async (timelineItems = []) => {
+  const actorValues = Array.from(
+    new Set(
+      timelineItems
+        .map((item) => String(item?.changedBy || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (actorValues.length === 0) {
+    return new Map();
+  }
+
+  const users = await User.findAll({
+    where: {
+      [Op.or]: [
+        { name: { [Op.in]: actorValues } },
+        { userName: { [Op.in]: actorValues } },
+        { email: { [Op.in]: actorValues } },
+      ],
+    },
+    attributes: ["id", "name", "userName", "email", "profileImageUrl", "updatedAt"],
+  });
+
+  const lookup = new Map();
+  users.forEach((user) => {
+    const u = typeof user?.toJSON === "function" ? user.toJSON() : user;
+    [u?.name, u?.userName, u?.email].forEach((value) => {
+      const key = normalizeActorValue(value);
+      if (key && !lookup.has(key)) {
+        lookup.set(key, u);
+      }
+    });
+  });
+
+  return lookup;
 };
 
 let hasSyncedLeadTimeline = false;
@@ -129,7 +177,7 @@ const addLeadTimeline = async ({ req, leadId, action, details }) => {
     changedAt: new Date(),
   });
 
-  return mapTimeline(timeline);
+  return mapTimeline(timeline, req?.user || null);
 };
 
 const listLeads = async (req, res) => {
@@ -421,7 +469,12 @@ const listTimeline = async (req, res) => {
       limit: 200,
     });
 
-    return res.json({ items: items.map(mapTimeline) });
+    const actorLookup = await buildActorProfileLookup(items);
+    const mappedItems = items.map((item) =>
+      mapTimeline(item, actorLookup.get(normalizeActorValue(item?.changedBy)))
+    );
+
+    return res.json({ items: mappedItems });
   } catch (err) {
     return res.status(500).json({ message: err.message || "Failed to load lead timeline" });
   }
