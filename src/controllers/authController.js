@@ -14,10 +14,20 @@ const toSessionUser = (user) => {
 
 const login = async (req, res) => {
   try {
-    const { userName, password } = req.body;
+    const { userName, email, identifier, password } = req.body;
+    const loginIdentifier = String(identifier || userName || email || "").trim();
 
-    const user = await User.findOne({ where: { userName } });
-    if (!user) return res.status(401).json({ message: "Invalid Username" });
+    if (!loginIdentifier || !password) {
+      return res.status(400).json({ message: "Username/email and password are required" });
+    }
+
+    const loweredIdentifier = loginIdentifier.toLowerCase();
+    const user = await User.findOne({
+      where: {
+        [Op.or]: [{ userName: loginIdentifier }, { userName: loweredIdentifier }, { email: loweredIdentifier }],
+      },
+    });
+    if (!user) return res.status(401).json({ message: "Invalid username or email" });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: "Invalid password" });
@@ -30,10 +40,14 @@ const login = async (req, res) => {
 
 const register = async (req, res) => {
   try {
-    const { name, email, password, phone, address, userName } = req.body;
+    const { name, email, password, phone, address, userName, role } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: "name, email, password are required" });
+    }
+
+    if (String(password).length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
@@ -42,6 +56,15 @@ const register = async (req, res) => {
         .trim()
         .replace(/\s+/g, "")
         .toLowerCase();
+    const requestedRole = String(role || "employee").trim().toLowerCase();
+    const allowedSelfRegisterRoles = new Set(["employee", "manager"]);
+    const resolvedRole = allowedSelfRegisterRoles.has(requestedRole) ? requestedRole : "employee";
+
+    if (!/^[a-z0-9._-]{3,30}$/.test(resolvedUserName)) {
+      return res.status(400).json({
+        message: "Username must be 3-30 chars and can include letters, numbers, dot, underscore, hyphen",
+      });
+    }
 
     const existingUser = await User.findOne({
       where: {
@@ -62,7 +85,7 @@ const register = async (req, res) => {
       password: hashedPassword,
       phone: phone || "",
       addressLine: address || "",
-      role: "employee",
+      role: resolvedRole,
     });
 
     return res.status(201).json(toSessionUser(user));

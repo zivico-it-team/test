@@ -8,7 +8,7 @@ const router = express.Router();
  * /api/auth/login:
  *   post:
  *     summary: User login
- *     description: Login user using email and password
+ *     description: Login user using username or email and password
  *     tags:
  *       - Auth
  *     requestBody:
@@ -18,12 +18,12 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             required:
- *               - email
+ *               - identifier
  *               - password
  *             properties:
- *               email:
+ *               identifier:
  *                 type: string
- *                 example: test@gmail.com
+ *                 example: john.doe or test@gmail.com
  *               password:
  *                 type: string
  *                 example: 123456
