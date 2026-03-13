@@ -439,6 +439,7 @@ const updateAdminProfile = async (req, res) => {
 
     const allowed = [
       "name",
+      "email",
       "phone",
       "dob",
       "gender",
@@ -447,6 +448,7 @@ const updateAdminProfile = async (req, res) => {
       "nationality",
       "addressLine",
       "postalCode",
+      "professional",
       "profileImageUrl",
       "profileImageFileName",
       "bio",
@@ -465,8 +467,23 @@ const updateAdminProfile = async (req, res) => {
       }
     }
 
-    if (req.body.email && req.body.email !== admin.email) {
-      return res.status(400).json({ message: "Email cannot be changed" });
+    if (req.body.email !== undefined) {
+      update.email = normalizeOptionalEmail(req.body.email);
+    }
+
+    if (
+      req.body.professional !== undefined ||
+      req.body.employeeId !== undefined ||
+      req.body.designation !== undefined ||
+      req.body.department !== undefined
+    ) {
+      const existingProfessional = toPlainObject(admin.professional, {});
+      const mergedProfessional = extractProfessional(req.body, existingProfessional);
+      update.professional = {
+        ...existingProfessional,
+        ...mergedProfessional,
+        designation: existingProfessional.designation || "",
+      };
     }
 
     await admin.update(update);
@@ -474,7 +491,7 @@ const updateAdminProfile = async (req, res) => {
     const updated = await User.findByPk(adminId, { attributes: { exclude: ["password"] } });
     res.json({ message: "Profile updated", user: toPublicUser(updated) });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return handleAdminUserError(res, err);
   }
 };
 
