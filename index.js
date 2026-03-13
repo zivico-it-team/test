@@ -31,6 +31,13 @@ if (missingResetMailEnvVars.length > 0) {
   );
 }
 
+const configuredClientUrl = String(process.env.CLIENT_URL || "").trim();
+if (/revorglobal\.com/i.test(configuredClientUrl)) {
+  console.warn(
+    "CLIENT_URL appears to have a typo (revorglobal.com). Expected domain is likely revoraglobal.com."
+  );
+}
+
 if (String(process.env.JWT_SECRET || "").trim() === "change_this_secret_to_a_long_random_string") {
   console.warn("JWT_SECRET is using a default placeholder. Set a strong secret in production.");
 }

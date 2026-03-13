@@ -11,6 +11,18 @@ const RESET_TOKEN_EXPIRY_MINUTES = Number(process.env.RESET_TOKEN_EXPIRES_MINUTE
 const FORGOT_PASSWORD_GENERIC_MESSAGE = "If that email exists, a reset link has been sent.";
 const hashResetToken = (token) =>
   crypto.createHash("sha256").update(String(token || "")).digest("hex");
+const normalizeClientUrl = (value) => {
+  const raw = String(value || "").trim().replace(/\/+$/, "");
+  if (!raw) return "";
+
+  // Guard against the common domain typo: revorglobal -> revoraglobal
+  const corrected = raw.replace(/revorglobal\.com/gi, "revoraglobal.com");
+  if (corrected !== raw) {
+    console.warn(`CLIENT_URL had a typo (${raw}). Using ${corrected} for password reset links.`);
+  }
+
+  return corrected;
+};
 
 const toSessionUser = (user) => {
   const u = toPublicUser(user);
@@ -124,7 +136,7 @@ const forgotPassword = async (req, res) => {
       expiresAt,
     });
 
-    const clientUrl = String(process.env.CLIENT_URL || "").trim().replace(/\/+$/, "");
+    const clientUrl = normalizeClientUrl(process.env.CLIENT_URL);
     if (!clientUrl) {
       console.error("CLIENT_URL is not configured for password reset links");
       return res.status(200).json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
