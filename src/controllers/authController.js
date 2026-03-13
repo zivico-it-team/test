@@ -1,8 +1,16 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const { Op } = require("sequelize");
+const PasswordReset = require("../models/PasswordReset");
 const generateToken = require("../utils/generateToken");
 const { toPublicUser } = require("../utils/userNormalizer");
+const { sendPasswordResetEmail } = require("../services/emailService");
+
+const RESET_TOKEN_EXPIRY_MINUTES = Number(process.env.RESET_TOKEN_EXPIRES_MINUTES || 15);
+const FORGOT_PASSWORD_GENERIC_MESSAGE = "If that email exists, a reset link has been sent.";
+const hashResetToken = (token) =>
+  crypto.createHash("sha256").update(String(token || "")).digest("hex");
 
 const toSessionUser = (user) => {
   const u = toPublicUser(user);
@@ -91,4 +99,101 @@ const register = async (req, res) => {
   }
 };
 
-module.exports = { login, register };
+const forgotPassword = async (req, res) => {
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+
+    if (!email) {
+      return res.status(200).json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
+    }
+
+    const user = await User.findOne({ where: { email } });
+
+    if (!user || !user.email) {
+      return res.status(200).json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
+    }
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = hashResetToken(rawToken);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MINUTES * 60 * 1000);
+
+    await PasswordReset.destroy({ where: { userId: user.id } });
+    await PasswordReset.create({
+      userId: user.id,
+      tokenHash,
+      expiresAt,
+    });
+
+    const clientUrl = String(process.env.CLIENT_URL || "").trim().replace(/\/+$/, "");
+    if (!clientUrl) {
+      console.error("CLIENT_URL is not configured for password reset links");
+      return res.status(200).json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
+    }
+
+    const resetLink = `${clientUrl}/reset-password/${rawToken}`;
+
+    try {
+      await sendPasswordResetEmail({
+        to: user.email,
+        name: user.name,
+        resetLink,
+        expiresMinutes: RESET_TOKEN_EXPIRY_MINUTES,
+      });
+    } catch (mailError) {
+      console.error("Failed to send password reset email:", mailError.message);
+    }
+
+    return res.status(200).json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
+  } catch (err) {
+    return res.status(200).json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const token = String(req.body?.token || "").trim();
+    const newPassword = String(req.body?.newPassword || "");
+    const confirmPassword = String(req.body?.confirmPassword || "");
+
+    if (!token || !newPassword || !confirmPassword) {
+      return res.status(400).json({ message: "token, newPassword, confirmPassword are required" });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ message: "New password and confirm password do not match" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "New password must be at least 6 characters" });
+    }
+
+    const tokenHash = hashResetToken(token);
+    const passwordReset = await PasswordReset.findOne({
+      where: {
+        tokenHash,
+        expiresAt: { [Op.gt]: new Date() },
+      },
+    });
+
+    if (!passwordReset) {
+      return res.status(400).json({ message: "Invalid or expired reset token" });
+    }
+
+    const user = await User.findByPk(passwordReset.userId);
+    if (!user) {
+      await PasswordReset.destroy({ where: { tokenHash } });
+      return res.status(400).json({ message: "Invalid or expired reset token" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await user.update({ password: hashedPassword });
+
+    await PasswordReset.destroy({ where: { userId: user.id } });
+
+    return res.status(200).json({ message: "Password reset successful" });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { login, register, forgotPassword, resetPassword };

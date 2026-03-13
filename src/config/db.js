@@ -62,6 +62,41 @@ const connectDB = async () => {
       console.log("Users.role enum updated with hr");
     }
 
+    const passwordResetTable = await queryInterface.describeTable("password_resets").catch(() => null);
+    if (!passwordResetTable) {
+      await queryInterface.createTable("password_resets", {
+        id: {
+          type: DataTypes.UUID,
+          allowNull: false,
+          primaryKey: true,
+        },
+        user_id: {
+          type: DataTypes.UUID,
+          allowNull: false,
+          references: { model: "users", key: "id" },
+          onUpdate: "CASCADE",
+          onDelete: "CASCADE",
+        },
+        token_hash: {
+          type: DataTypes.STRING(128),
+          allowNull: false,
+          unique: true,
+        },
+        expires_at: {
+          type: DataTypes.DATE,
+          allowNull: false,
+        },
+        created_at: {
+          type: DataTypes.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+        },
+      });
+      await queryInterface.addIndex("password_resets", ["user_id"]);
+      await queryInterface.addIndex("password_resets", ["expires_at"]);
+      console.log("password_resets table created");
+    }
+
     const leadTable = await queryInterface.describeTable("leads").catch(() => null);
     if (!leadTable) {
       return;
