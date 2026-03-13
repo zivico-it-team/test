@@ -1,5 +1,15 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
+const { Op } = require("sequelize");
+const LeaderboardPerformance = require("../models/LeaderboardPerformance");
+const { sequelize } = require("../config/db");
+const Activity = require("../models/Activity");
+const Attendance = require("../models/Attendance");
+const Leave = require("../models/Leave");
+const Upload = require("../models/Upload");
+const FileShare = require("../models/FileShare");
+const PasswordReset = require("../models/PasswordReset");
+const Lead = require("../models/Lead");
 const {
   toPublicUser,
   toPlainObject,
@@ -59,6 +69,81 @@ const handleAdminUserError = (res, err) => {
   }
 
   return res.status(500).json({ message: err.message || "Server error" });
+};
+
+const purgeUserRecords = async (userId, transaction) => {
+  const id = String(userId || "").trim();
+  if (!id) return;
+
+  await PasswordReset.destroy({ where: { userId: id }, transaction });
+  await LeaderboardPerformance.destroy({ where: { employeeId: id }, transaction });
+
+  // Remove leave action reference before deleting manager/admin actors.
+  await Leave.update({ actionById: null }, { where: { actionById: id }, transaction });
+  await Leave.destroy({ where: { userId: id }, transaction });
+
+  await Attendance.destroy({ where: { userId: id }, transaction });
+  await Activity.destroy({ where: { userId: id }, transaction });
+
+  const userUploads = await Upload.findAll({
+    where: { userId: id },
+    attributes: ["id"],
+    transaction,
+  });
+  const uploadIds = userUploads.map((item) => item.id).filter(Boolean);
+  if (uploadIds.length > 0) {
+    await FileShare.destroy({
+      where: { fileId: { [Op.in]: uploadIds } },
+      transaction,
+    });
+  }
+
+  // Shares created by user should be removed.
+  await FileShare.destroy({ where: { sharedById: id }, transaction });
+
+  // Remove user from targeted share lists.
+  const scopedShares = await FileShare.findAll({
+    where: { scope: "users" },
+    attributes: ["id", "sharedWith"],
+    transaction,
+  });
+  for (const share of scopedShares) {
+    const sharedWith = Array.isArray(share.sharedWith) ? share.sharedWith : [];
+    if (!sharedWith.some((entry) => String(entry) === id)) continue;
+    const nextSharedWith = sharedWith.filter((entry) => String(entry) !== id);
+    await share.update({ sharedWith: nextSharedWith }, { transaction });
+  }
+
+  await Upload.destroy({ where: { userId: id }, transaction });
+
+  // Leads are business records, so detach user references instead of deleting leads.
+  await Lead.update(
+    {
+      assignedTo: "",
+      assignedToId: "",
+      assignedDate: null,
+      leadPool: "SL_EMP_UNASSIGNED",
+    },
+    { where: { assignedToId: id }, transaction }
+  );
+
+  await Lead.update(
+    {
+      followUp: "",
+      followUpSetById: "",
+      followUpSetBy: "",
+      followUpSetAt: null,
+      followUpHandled: true,
+      followUpHandledAt: new Date(),
+      followUpHandledById: "",
+    },
+    { where: { followUpSetById: id }, transaction }
+  );
+
+  await Lead.update(
+    { followUpHandledById: "" },
+    { where: { followUpHandledById: id }, transaction }
+  );
 };
 
 // Admin → Add Manager
@@ -273,9 +358,11 @@ const deleteManager = async (req, res) => {
       return res.status(400).json({ message: "You can't delete your own account" });
     }
 
-    const deleted = await User.destroy({ where: { id, role: "manager" } });
+    const deleted = await sequelize.transaction(async (transaction) => {
+      await purgeUserRecords(id, transaction);
+      return User.destroy({ where: { id, role: "manager" }, transaction });
+    });
     if (!deleted) return res.status(404).json({ message: "Manager not found" });
-
     res.json({ message: "Manager deleted successfully" });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -419,7 +506,10 @@ const deleteEmployee = async (req, res) => {
       return res.status(400).json({ message: "You can't delete your own account" });
     }
 
-    const deleted = await User.destroy({ where: { id, role: "employee" } });
+    const deleted = await sequelize.transaction(async (transaction) => {
+      await purgeUserRecords(id, transaction);
+      return User.destroy({ where: { id, role: "employee" }, transaction });
+    });
     if (!deleted) return res.status(404).json({ message: "Employee not found" });
 
     res.json({ message: "Employee deleted successfully" });
