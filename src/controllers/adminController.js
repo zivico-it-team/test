@@ -439,6 +439,7 @@ const updateAdminProfile = async (req, res) => {
 
     const allowed = [
       "name",
+      "userName",
       "email",
       "phone",
       "dob",
