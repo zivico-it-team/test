@@ -337,10 +337,6 @@ const updateEmployee = async (req, res) => {
       "skills",
     ];
 
-    if (req.body.role && req.body.role !== "employee") {
-      return res.status(400).json({ message: "Role change not allowed here" });
-    }
-
     const employee = await User.findOne({ where: { id, role: "employee" } });
     if (!employee) return res.status(404).json({ message: "Employee not found" });
 
@@ -387,6 +383,22 @@ const updateEmployee = async (req, res) => {
 
     if (req.body.password && String(req.body.password).trim()) {
       update.password = await bcrypt.hash(req.body.password, 10);
+    }
+
+    if (req.body.role !== undefined) {
+      const nextRole = String(req.body.role || "").trim().toLowerCase();
+      if (!["employee", "manager"].includes(nextRole)) {
+        return res.status(400).json({ message: "Invalid role. Allowed roles: employee, manager" });
+      }
+
+      if (nextRole === "manager") {
+        const actorRole = String(req.user?.role || "").trim().toLowerCase();
+        if (actorRole !== "admin") {
+          return res.status(403).json({ message: "Only admin can convert employee to manager" });
+        }
+      }
+
+      update.role = nextRole;
     }
 
     await employee.update(update);
