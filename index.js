@@ -57,6 +57,7 @@ const allowedOrigins = Array.from(
     "https://crm.revoraglobal.com",
     "https://revoraglobal.com",
     "https://api.revoraglobal.com",
+    "http://localhost:5173",
     ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173", "http://localhost:5174"]),
     ...parseOrigins(process.env.ALLOWED_ORIGINS),
     ...parseOrigins(process.env.CLIENT_URL), // backward compatibility
