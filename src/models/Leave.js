@@ -12,7 +12,9 @@ const Leave = sequelize.define(
 
     fromDate: { type: DataTypes.DATE, allowNull: false },
     toDate: { type: DataTypes.DATE, allowNull: false },
-    totalDays: { type: DataTypes.INTEGER, allowNull: false },
+    totalDays: { type: DataTypes.FLOAT, allowNull: false },
+    isHalfDay: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    session: { type: DataTypes.STRING(20), allowNull: true, defaultValue: null },
 
     reason: { type: DataTypes.STRING(500), allowNull: true, defaultValue: "" },
 

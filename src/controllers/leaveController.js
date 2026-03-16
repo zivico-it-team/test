@@ -1,5 +1,6 @@
 const { Op } = require("sequelize");
 const Leave = require("../models/Leave");
+const Notification = require("../models/Notification");
 const User = require("../models/User");
 
 const LEGACY_POLICY_TOTALS = {
@@ -109,6 +110,52 @@ const calcDaysInclusive = (fromDate, toDate) => {
   return Math.floor(diff / (1000 * 60 * 60 * 24)) + 1;
 };
 
+const toBoolean = (value) => {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+};
+
+const normalizeValue = (value) => String(value || "").trim().toLowerCase();
+
+const isHRUser = (user) => {
+  const role = normalizeValue(user?.role);
+  if (role === "hr" || role.includes("hr")) {
+    return true;
+  }
+
+  if (role !== "manager") {
+    return false;
+  }
+
+  const professional = toPlainObject(user?.professional, {});
+  const department = normalizeValue(professional?.department);
+  const designation = normalizeValue(professional?.designation);
+  const teamName = normalizeValue(professional?.teamName);
+
+  return (
+    department === "hr" ||
+    department.includes("human resource") ||
+    designation.includes("hr") ||
+    designation.includes("human resource") ||
+    designation === "hr manager" ||
+    teamName === "hr"
+  );
+};
+
+const getUserKeys = (user) =>
+  [user?.id, user?._id, user?.name, user?.email, user?.userName]
+    .filter(Boolean)
+    .map((value) => normalizeValue(value));
+
+const formatDateLabel = (date) => {
+  const dt = new Date(date);
+  const year = dt.getFullYear();
+  const month = String(dt.getMonth() + 1).padStart(2, "0");
+  const day = String(dt.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const toLeaveJson = (l) => {
   const o = typeof l.toJSON === "function" ? l.toJSON() : l;
   const includedUser =
@@ -129,9 +176,10 @@ const toLeaveJson = (l) => {
 const applyLeave = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { type, fromDate, toDate, reason } = req.body;
+    const { type, fromDate, toDate, reason, isHalfDay, session } = req.body;
     const requestedType = getLeaveTypeKey(type);
     const policyTotals = buildUserPolicyTotals(req.user);
+    const halfDayRequested = toBoolean(isHalfDay);
 
     if (!type) return res.status(400).json({ message: "type is required" });
     if (!requestedType) return res.status(400).json({ message: "Invalid leave type" });
@@ -156,7 +204,17 @@ const applyLeave = async (req, res) => {
       return res.status(400).json({ message: "Cannot select past dates" });
     }
 
-    const totalDays = calcDaysInclusive(from, to);
+    if (halfDayRequested && startOfDay(from).getTime() !== startOfDay(to).getTime()) {
+      return res.status(400).json({
+        message: "For half day leave, fromDate and toDate must be the same day",
+      });
+    }
+
+    if (halfDayRequested && !["first", "second"].includes(String(session || "").toLowerCase())) {
+      return res.status(400).json({ message: "Valid half day session is required" });
+    }
+
+    const totalDays = halfDayRequested ? 0.5 : calcDaysInclusive(from, to);
 
     // Prevent overlapping leaves (pending/approved)
     const overlap = await Leave.findOne({
@@ -201,9 +259,63 @@ const applyLeave = async (req, res) => {
       fromDate: from,
       toDate: to,
       totalDays,
+      isHalfDay: halfDayRequested,
+      session: halfDayRequested ? String(session).toLowerCase() : null,
       reason: reason || "",
       status: "pending",
     });
+
+    const employeeName = String(req.user?.name || req.user?.userName || "An employee").trim();
+    const reportingManager = normalizeValue(req.user?.professional?.reportingManager);
+    const allPotentialRecipients = await User.findAll({
+      attributes: ["id", "name", "email", "userName", "role", "professional"],
+    });
+
+    const recipientIds = new Set();
+    for (const candidate of allPotentialRecipients) {
+      if (String(candidate.id) === String(userId)) {
+        continue;
+      }
+
+      const role = normalizeValue(candidate.role);
+      const hrUser = isHRUser(candidate);
+      const directManagerMatch =
+        reportingManager && role === "manager" && getUserKeys(candidate).includes(reportingManager);
+      const fallbackManager = !reportingManager && role === "manager" && !hrUser;
+
+      if (role === "admin" || hrUser || directManagerMatch || fallbackManager) {
+        recipientIds.add(candidate.id);
+      }
+    }
+
+    if (recipientIds.size > 0) {
+      const sessionLabel =
+        halfDayRequested && String(session).toLowerCase() === "second" ? "Second Half" : "First Half";
+      const leaveLabel = toLeaveLabel(requestedType);
+      const dateLabel = formatDateLabel(from);
+      const leaveMessage = halfDayRequested
+        ? `${employeeName} applied for ${leaveLabel} half day leave (${sessionLabel}) on ${dateLabel}.`
+        : `${employeeName} applied for ${leaveLabel} leave from ${formatDateLabel(from)} to ${formatDateLabel(to)}.`;
+
+      await Notification.bulkCreate(
+        Array.from(recipientIds).map((recipientId) => ({
+          userId: recipientId,
+          title: "New Leave Request",
+          message: leaveMessage,
+          type: "leave_request",
+          module: "leave",
+          isRead: false,
+          meta: {
+            leaveId: leave.id,
+            employeeId: userId,
+            employeeName,
+            leaveType: requestedType,
+            isHalfDay: halfDayRequested,
+            session: halfDayRequested ? String(session).toLowerCase() : null,
+          },
+        }))
+      );
+    }
 
     res.status(201).json({ message: "Leave applied", leave: toLeaveJson(leave) });
   } catch (err) {

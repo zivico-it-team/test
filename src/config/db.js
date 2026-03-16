@@ -97,6 +97,100 @@ const connectDB = async () => {
       console.log("password_resets table created");
     }
 
+    const leaveTable = await queryInterface.describeTable("leaves").catch(() => null);
+    if (leaveTable) {
+      if (!String(leaveTable?.totalDays?.type || "").toLowerCase().includes("float")) {
+        await queryInterface.changeColumn("leaves", "totalDays", {
+          type: DataTypes.FLOAT,
+          allowNull: false,
+        });
+        console.log("Leaves.totalDays column updated to float");
+      }
+
+      if (!leaveTable?.isHalfDay) {
+        await queryInterface.addColumn("leaves", "isHalfDay", {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        });
+        console.log("Leaves.isHalfDay column added");
+      }
+
+      if (!leaveTable?.session) {
+        await queryInterface.addColumn("leaves", "session", {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+          defaultValue: null,
+        });
+        console.log("Leaves.session column added");
+      }
+    }
+
+    const notificationsTable = await queryInterface.describeTable("notifications").catch(() => null);
+    if (!notificationsTable) {
+      await queryInterface.createTable("notifications", {
+        id: {
+          type: DataTypes.UUID,
+          allowNull: false,
+          primaryKey: true,
+        },
+        userId: {
+          type: DataTypes.UUID,
+          allowNull: false,
+          references: { model: "users", key: "id" },
+          onUpdate: "CASCADE",
+          onDelete: "CASCADE",
+        },
+        title: {
+          type: DataTypes.STRING(160),
+          allowNull: false,
+          defaultValue: "",
+        },
+        message: {
+          type: DataTypes.STRING(500),
+          allowNull: false,
+          defaultValue: "",
+        },
+        type: {
+          type: DataTypes.STRING(60),
+          allowNull: false,
+          defaultValue: "general",
+        },
+        module: {
+          type: DataTypes.STRING(60),
+          allowNull: false,
+          defaultValue: "general",
+        },
+        isRead: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        readAt: {
+          type: DataTypes.DATE,
+          allowNull: true,
+          defaultValue: null,
+        },
+        meta: {
+          type: DataTypes.JSON,
+          allowNull: true,
+        },
+        createdAt: {
+          type: DataTypes.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+        },
+        updatedAt: {
+          type: DataTypes.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+        },
+      });
+      await queryInterface.addIndex("notifications", ["userId", "isRead"]);
+      await queryInterface.addIndex("notifications", ["type"]);
+      console.log("notifications table created");
+    }
+
     const leadTable = await queryInterface.describeTable("leads").catch(() => null);
     if (!leadTable) {
       return;

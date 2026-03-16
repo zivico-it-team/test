@@ -103,6 +103,38 @@ const MASTER_DATA_FIELD_LABELS = {
   complianceType: "Compliance Type",
 };
 
+const MASTER_DATA_REQUEST_NOTIFICATION_TYPE = "lead_master_data_request";
+const MASTER_DATA_RESULT_NOTIFICATION_TYPE = "lead_master_data_result";
+
+const isLeadApprovalReviewer = (user) => {
+  const role = String(user?.role || "").trim().toLowerCase();
+  return role === "admin" || role === "manager";
+};
+
+const mapMasterDataRequest = (request) => {
+  const item = typeof request?.toJSON === "function" ? request.toJSON() : request;
+  return {
+    ...item,
+    _id: item?.id,
+    changedFields: Array.isArray(item?.changedFields)
+      ? item.changedFields.map((field) => MASTER_DATA_FIELD_LABELS[field] || field)
+      : [],
+    requestedData: item?.requestedData && typeof item.requestedData === "object" ? item.requestedData : {},
+    requestedBy: {
+      id: item?.requestedByUserId || "",
+      name: item?.requestedByName || "",
+      role: item?.requestedByRole || "",
+    },
+    reviewedBy: item?.reviewedByUserId
+      ? {
+          id: item?.reviewedByUserId || "",
+          name: item?.reviewedByName || "",
+          role: item?.reviewedByRole || "",
+        }
+      : null,
+  };
+};
+
 const mapTimeline = (entry, actorProfile = null) => {
   const obj = typeof entry?.toJSON === "function" ? entry.toJSON() : entry;
   const actorObj = actorProfile && typeof actorProfile?.toJSON === "function" ? actorProfile.toJSON() : actorProfile;
@@ -184,7 +216,7 @@ const normalizeCompareValue = (field, value) => {
   return String(value).trim();
 };
 
-const addLeadTimeline = async ({ req, leadId, action, details }) => {
+const addLeadTimelineEntry = async ({ leadId, action, details, changedBy }) => {
   if (!leadId || !action || !details) return null;
 
   await ensureLeadTimelineReady();
@@ -192,11 +224,159 @@ const addLeadTimeline = async ({ req, leadId, action, details }) => {
     leadId,
     action: String(action).trim(),
     details: String(details).trim(),
-    changedBy: getActorName(req),
+    changedBy: String(changedBy || "System").trim() || "System",
     changedAt: new Date(),
   });
 
+  return timeline;
+};
+
+const addLeadTimeline = async ({ req, leadId, action, details }) => {
+  const actorName = getActorName(req);
+  const timeline = await addLeadTimelineEntry({
+    leadId,
+    action,
+    details,
+    changedBy: actorName,
+  });
+
   return mapTimeline(timeline, req?.user || null);
+};
+
+const buildLeadMasterDataNextValues = ({ lead, payload = {}, actorId = "", actorName = "System" }) => {
+  const assignedTo = payload?.assignedTo !== undefined ? String(payload.assignedTo || "").trim() : lead.assignedTo;
+  const assignedToId = payload?.assignedToId !== undefined ? String(payload.assignedToId || "").trim() : lead.assignedToId;
+  const explicitLeadPool = payload?.leadPool !== undefined ? String(payload.leadPool || "").trim() : "";
+  const nextLeadPool =
+    explicitLeadPool || (hasAssignedToValue(assignedTo) || Boolean(assignedToId) ? ASSIGNED_LEAD_POOL : UNASSIGNED_LEAD_POOL);
+  const isAssigned = isAssignedState({ assignedTo, assignedToId, leadPool: nextLeadPool });
+  const nextValues = {
+    name: payload?.name !== undefined ? String(payload.name || "").trim() : lead.name,
+    email: payload?.email !== undefined ? String(payload.email || "").trim() : lead.email,
+    phone:
+      payload?.phone !== undefined || payload?.phoneNumber !== undefined
+        ? String(payload.phone || payload.phoneNumber || "").trim()
+        : lead.phone,
+    fax: payload?.fax !== undefined ? String(payload.fax || "").trim() : lead.fax,
+    gender: payload?.gender !== undefined ? String(payload.gender || "").trim() : lead.gender,
+    dateOfBirth:
+      payload?.dateOfBirth !== undefined ? String(payload.dateOfBirth || "").trim() : lead.dateOfBirth,
+    country: payload?.country !== undefined ? String(payload.country || "").trim() : lead.country,
+    preferredLanguage:
+      payload?.language !== undefined || payload?.preferredLanguage !== undefined
+        ? String(payload.language || payload.preferredLanguage || "").trim()
+        : lead.preferredLanguage,
+    campaign: payload?.campaign !== undefined ? String(payload.campaign || "").trim() : lead.campaign,
+    leadPool: nextLeadPool,
+    assignedTo,
+    assignedToId,
+    assignedDate:
+      payload?.assignedDate !== undefined
+        ? payload.assignedDate
+          ? new Date(payload.assignedDate)
+          : null
+        : isAssigned
+          ? lead.assignedDate || new Date()
+          : null,
+    wasEverAssigned: Boolean(lead.wasEverAssigned || isAssigned),
+    followUp: payload?.followUp !== undefined ? String(payload.followUp || "").trim() : lead.followUp,
+    complianceType:
+      payload?.complianceType !== undefined
+        ? String(payload.complianceType || "").trim()
+        : lead.complianceType,
+  };
+
+  const previousFollowUpValue = normalizeCompareValue("followUp", lead.followUp);
+  const nextFollowUpValue = normalizeCompareValue("followUp", nextValues.followUp);
+  const followUpChanged = previousFollowUpValue !== nextFollowUpValue;
+
+  if (followUpChanged) {
+    if (nextFollowUpValue) {
+      nextValues.followUpSetById = String(actorId || "").trim();
+      nextValues.followUpSetBy = String(actorName || "System").trim() || "System";
+      nextValues.followUpSetAt = new Date();
+    } else {
+      nextValues.followUpSetById = "";
+      nextValues.followUpSetBy = "";
+      nextValues.followUpSetAt = null;
+    }
+
+    nextValues.followUpHandled = false;
+    nextValues.followUpHandledAt = null;
+    nextValues.followUpHandledById = "";
+  }
+
+  const changedFields = Object.keys(MASTER_DATA_FIELD_LABELS).filter(
+    (field) => normalizeCompareValue(field, lead[field]) !== normalizeCompareValue(field, nextValues[field])
+  );
+
+  return { nextValues, changedFields };
+};
+
+const applyLeadMasterDataUpdate = async ({
+  lead,
+  payload,
+  actorId = "",
+  actorName = "System",
+  timelineAction = "Master Data Updated",
+  timelineDetailsPrefix = "Updated",
+}) => {
+  const { nextValues, changedFields } = buildLeadMasterDataNextValues({
+    lead,
+    payload,
+    actorId,
+    actorName,
+  });
+
+  await lead.update(nextValues);
+
+  let timelineEntry = null;
+  if (changedFields.length > 0) {
+    const labels = changedFields.map((field) => MASTER_DATA_FIELD_LABELS[field]);
+    const timelineRecord = await addLeadTimelineEntry({
+      leadId: lead.id,
+      action: timelineAction,
+      details: `${timelineDetailsPrefix} ${labels.join(", ")}`,
+      changedBy: actorName,
+    });
+    timelineEntry = mapTimeline(timelineRecord, null);
+  }
+
+  return { lead, timelineEntry, changedFields, nextValues };
+};
+
+const createLeadMasterDataNotifications = async ({ requester, lead, changedFields, requestId }) => {
+  const recipients = await User.findAll({
+    where: {
+      role: {
+        [Op.in]: ["admin", "manager"],
+      },
+    },
+    attributes: ["id", "name", "role"],
+  });
+
+  const recipientPayload = recipients
+    .filter((recipient) => String(recipient.id) !== String(requester?._id || requester?.id || ""))
+    .map((recipient) => ({
+      userId: recipient.id,
+      title: "Lead Update Approval Needed",
+      message: `${requester?.name || requester?.userName || "Employee"} requested master data changes for "${lead?.name || "Lead"}".`,
+      type: MASTER_DATA_REQUEST_NOTIFICATION_TYPE,
+      module: "lead",
+      isRead: false,
+      meta: {
+        requestId,
+        leadId: lead?.id || "",
+        leadName: lead?.name || "",
+        requestedByUserId: requester?._id || requester?.id || "",
+        requestedByName: requester?.name || requester?.userName || "Employee",
+        changedFields,
+      },
+    }));
+
+  if (recipientPayload.length > 0) {
+    await Notification.bulkCreate(recipientPayload);
+  }
 };
 
 const listLeads = async (req, res) => {
@@ -331,7 +511,7 @@ const updateMasterData = async (req, res) => {
   try {
     const lead = await ensureLead(req.params.id, res);
     if (!lead) return;
-
+    
     const assignedTo = req.body?.assignedTo !== undefined ? String(req.body.assignedTo || "").trim() : lead.assignedTo;
     const assignedToId =
       req.body?.assignedToId !== undefined ? String(req.body.assignedToId || "").trim() : lead.assignedToId;

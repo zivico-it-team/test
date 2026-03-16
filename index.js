@@ -100,6 +100,7 @@ app.use("/api/employee", require("./src/routes/employeeRoutes"));
 app.use("/api/attendance", require("./src/routes/attendanceRoutes"));
 app.use("/api/activity", require("./src/routes/activityRoutes"));
 app.use("/api/leaderboard", require("./src/routes/leaderboardRoutes"));
+app.use("/api/notifications", require("./src/routes/notificationRoutes"));
 app.use("/api/profile", require("./src/routes/profileRoutes"));
 app.use("/api/profile", require("./src/routes/profilePhotoRoutes"));
 app.use("/api/team", require("./src/routes/teamRoutes"));
