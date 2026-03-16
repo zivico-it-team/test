@@ -16,6 +16,7 @@ const Lead = sequelize.define(
     preferredLanguage: { type: DataTypes.STRING(80), allowNull: false, defaultValue: "" },
     assignedTo: { type: DataTypes.STRING(120), allowNull: false, defaultValue: "" },
     assignedToId: { type: DataTypes.STRING(64), allowNull: false, defaultValue: "" },
+    wasEverAssigned: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     followUp: { type: DataTypes.STRING(120), allowNull: false, defaultValue: "" },
     followUpSetById: { type: DataTypes.STRING(64), allowNull: false, defaultValue: "" },
     followUpSetBy: { type: DataTypes.STRING(120), allowNull: false, defaultValue: "" },

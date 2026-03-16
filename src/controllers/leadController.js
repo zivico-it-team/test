@@ -18,6 +18,7 @@ const mapLead = (lead) => {
     _id: obj?.id,
     assignedTo: obj?.assignedTo || "",
     assignedToId: obj?.assignedToId || "",
+    wasEverAssigned: Boolean(obj?.wasEverAssigned),
     preferredLanguage: obj?.preferredLanguage || "",
     followUpSetById: obj?.followUpSetById || "",
     followUpSetBy: obj?.followUpSetBy || "",
@@ -26,6 +27,24 @@ const mapLead = (lead) => {
     followUpHandledAt: obj?.followUpHandledAt || null,
     followUpHandledById: obj?.followUpHandledById || "",
   };
+};
+
+const ASSIGNED_LEAD_POOL = "SL_EMP_ASSIGNED";
+const UNASSIGNED_LEAD_POOL = "SL_EMP_UNASSIGNED";
+
+const normalizeLeadPool = (leadPool) => String(leadPool || "").trim().toUpperCase();
+
+const hasAssignedToValue = (assignedTo) => {
+  const normalized = String(assignedTo || "").trim();
+  return Boolean(normalized) && normalized !== "Unassigned";
+};
+
+const isAssignedState = ({ assignedTo, assignedToId, leadPool }) => {
+  const hasCurrentAssignment = hasAssignedToValue(assignedTo) || Boolean(String(assignedToId || "").trim());
+  if (hasCurrentAssignment) {
+    return true;
+  }
+  return normalizeLeadPool(leadPool) === ASSIGNED_LEAD_POOL;
 };
 
 const assignmentScopeForEmployee = (user) => {
@@ -234,6 +253,8 @@ const createLead = async (req, res) => {
 
     const assignedTo = String(req.body?.assignedTo || "").trim();
     const assignedToId = String(req.body?.assignedToId || "").trim();
+    const requestedLeadPool = String(req.body?.leadPool || "").trim();
+    const isAssigned = isAssignedState({ assignedTo, assignedToId, leadPool: requestedLeadPool });
 
     const lead = await Lead.create({
       name,
@@ -247,14 +268,13 @@ const createLead = async (req, res) => {
       stage: String(req.body?.stage || "New").trim(),
       tag: String(req.body?.tag || "New Lead").trim(),
       comment: String(req.body?.comment || "").trim(),
-      assignedDate: req.body?.assignedDate ? new Date(req.body.assignedDate) : assignedTo ? new Date() : null,
+      assignedDate: req.body?.assignedDate ? new Date(req.body.assignedDate) : isAssigned ? new Date() : null,
+      wasEverAssigned: isAssigned,
       complianceType: String(req.body?.complianceType || "Standard").trim(),
       uploadedBy: String(req.body?.uploadedBy || req.user?.name || req.user?.email || "System").trim(),
       campaign: String(req.body?.campaign || "General Campaign").trim(),
       source: String(req.body?.source || "manual").trim(),
-      leadPool: String(
-        req.body?.leadPool || (assignedTo ? "SL_EMP_ASSIGNED" : "SL_EMP_UNASSIGNED")
-      ).trim(),
+      leadPool: requestedLeadPool || (isAssigned ? ASSIGNED_LEAD_POOL : UNASSIGNED_LEAD_POOL),
       fax: String(req.body?.fax || "").trim(),
       gender: String(req.body?.gender || "").trim(),
       dateOfBirth: String(req.body?.dateOfBirth || "").trim(),
@@ -315,6 +335,10 @@ const updateMasterData = async (req, res) => {
     const assignedTo = req.body?.assignedTo !== undefined ? String(req.body.assignedTo || "").trim() : lead.assignedTo;
     const assignedToId =
       req.body?.assignedToId !== undefined ? String(req.body.assignedToId || "").trim() : lead.assignedToId;
+    const explicitLeadPool = req.body?.leadPool !== undefined ? String(req.body.leadPool || "").trim() : "";
+    const nextLeadPool =
+      explicitLeadPool || (hasAssignedToValue(assignedTo) || Boolean(assignedToId) ? ASSIGNED_LEAD_POOL : UNASSIGNED_LEAD_POOL);
+    const isAssigned = isAssignedState({ assignedTo, assignedToId, leadPool: nextLeadPool });
     const nextValues = {
       name: req.body?.name !== undefined ? String(req.body.name || "").trim() : lead.name,
       email: req.body?.email !== undefined ? String(req.body.email || "").trim() : lead.email,
@@ -332,12 +356,7 @@ const updateMasterData = async (req, res) => {
           ? String(req.body.language || req.body.preferredLanguage || "").trim()
           : lead.preferredLanguage,
       campaign: req.body?.campaign !== undefined ? String(req.body.campaign || "").trim() : lead.campaign,
-      leadPool:
-        req.body?.leadPool !== undefined
-          ? String(req.body.leadPool || "").trim()
-          : assignedTo
-            ? "SL_EMP_ASSIGNED"
-            : "SL_EMP_UNASSIGNED",
+      leadPool: nextLeadPool,
       assignedTo,
       assignedToId,
       assignedDate:
@@ -345,9 +364,10 @@ const updateMasterData = async (req, res) => {
           ? req.body.assignedDate
             ? new Date(req.body.assignedDate)
             : null
-          : assignedTo
+          : isAssigned
             ? lead.assignedDate || new Date()
             : null,
+      wasEverAssigned: Boolean(lead.wasEverAssigned || isAssigned),
       followUp: req.body?.followUp !== undefined ? String(req.body.followUp || "").trim() : lead.followUp,
       complianceType:
         req.body?.complianceType !== undefined
@@ -673,7 +693,7 @@ const getAssignEmployees = async (_req, res) => {
   }
 };
 
-const isAssignedWhere = {
+const hasAssignedToWhere = {
   [Op.and]: [
     { assignedTo: { [Op.not]: null } },
     { assignedTo: { [Op.ne]: "" } },
@@ -681,13 +701,51 @@ const isAssignedWhere = {
   ],
 };
 
+const hasAssignedToIdWhere = {
+  [Op.and]: [
+    { assignedToId: { [Op.not]: null } },
+    { assignedToId: { [Op.ne]: "" } },
+  ],
+};
+
+const isAssignedWhere = {
+  [Op.or]: [{ leadPool: ASSIGNED_LEAD_POOL }, hasAssignedToWhere, hasAssignedToIdWhere],
+};
+
+const isUnassignedWhere = {
+  [Op.and]: [
+    { wasEverAssigned: true },
+    {
+      [Op.or]: [
+        { leadPool: UNASSIGNED_LEAD_POOL },
+        {
+          [Op.and]: [
+            {
+              [Op.or]: [
+                { leadPool: null },
+                { leadPool: "" },
+              ],
+            },
+            {
+              [Op.or]: [{ assignedTo: null }, { assignedTo: "" }, { assignedTo: "Unassigned" }],
+            },
+            {
+              [Op.or]: [{ assignedToId: null }, { assignedToId: "" }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
 const getAssignStats = async (_req, res) => {
   try {
-    const [total, assigned] = await Promise.all([
+    const [total, assigned, unassigned] = await Promise.all([
       Lead.count(),
       Lead.count({ where: isAssignedWhere }),
+      Lead.count({ where: isUnassignedWhere }),
     ]);
-    const unassigned = total - assigned;
 
     return res.json({ total, assigned, unassigned });
   } catch (err) {
@@ -706,13 +764,7 @@ const getAssignLeads = async (req, res) => {
     if (filter === "assigned") {
       where = mergeWhere(where, isAssignedWhere);
     } else if (filter === "unassigned") {
-      where = mergeWhere(where, {
-        [Op.or]: [
-          { assignedTo: null },
-          { assignedTo: "" },
-          { assignedTo: "Unassigned" },
-        ],
-      });
+      where = mergeWhere(where, isUnassignedWhere);
     } else if (filter === "new") {
       where = mergeWhere(where, {
         [Op.or]: [
@@ -775,7 +827,8 @@ const assignLeads = async (req, res) => {
         assignedTo: employeeName,
         assignedToId: employeeId,
         assignedDate: new Date(),
-        leadPool: "SL_EMP_ASSIGNED",
+        leadPool: ASSIGNED_LEAD_POOL,
+        wasEverAssigned: true,
       },
       {
         where: { id: { [Op.in]: leadIds } },
@@ -800,7 +853,8 @@ const unassignLeads = async (req, res) => {
         assignedTo: "",
         assignedToId: "",
         assignedDate: null,
-        leadPool: "SL_EMP_UNASSIGNED",
+        leadPool: UNASSIGNED_LEAD_POOL,
+        wasEverAssigned: true,
       },
       {
         where: { id: { [Op.in]: leadIds } },

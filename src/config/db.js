@@ -138,6 +138,19 @@ const connectDB = async () => {
       allowNull: false,
       defaultValue: "",
     });
+    await ensureLeadColumn("wasEverAssigned", {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    });
+
+    await sequelize.query(`
+      UPDATE leads
+      SET wasEverAssigned = 1
+      WHERE leadPool = 'SL_EMP_ASSIGNED'
+         OR (assignedTo IS NOT NULL AND assignedTo <> '' AND assignedTo <> 'Unassigned')
+         OR (assignedToId IS NOT NULL AND assignedToId <> '')
+    `);
   } catch (error) {
     console.error("MySQL connection failed", error);
     process.exit(1);

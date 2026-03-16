@@ -4,9 +4,16 @@ const User = require("../models/User");
 
 const toLeaveJson = (l) => {
   const o = typeof l.toJSON === "function" ? l.toJSON() : l;
+  const includedUser =
+    o.user && typeof o.user === "object" ? { ...o.user, _id: o.user.id || o.user._id || o.userId } : null;
+  const includedActionBy =
+    o.actionBy && typeof o.actionBy === "object"
+      ? { ...o.actionBy, _id: o.actionBy.id || o.actionBy._id || o.actionById }
+      : null;
   o._id = o.id;
-  o.user = o.userId;
-  o.actionBy = o.actionById;
+  o.user = includedUser || o.userId;
+  o.actionBy = includedActionBy || o.actionById;
+  o.actionByName = includedActionBy?.name || "";
   return o;
 };
 
@@ -40,17 +47,16 @@ const adminLeaveList = async (req, res) => {
 
     const { count: total, rows } = await Leave.findAndCountAll({
       where,
-      include: [{ model: User, as: "user", attributes: ["id", "name", "email", "role"] }],
+      include: [
+        { model: User, as: "user", attributes: ["id", "name", "email", "role"] },
+        { model: User, as: "actionBy", attributes: ["id", "name", "email", "role"] },
+      ],
       order: [["createdAt", "DESC"]],
       offset,
       limit: l,
     });
 
-    const leaves = rows.map((x) => {
-      const o = toLeaveJson(x);
-      if (x.user) o.user = { ...x.user.toJSON(), _id: x.user.id };
-      return o;
-    });
+    const leaves = rows.map((x) => toLeaveJson(x));
 
     res.json({ page: p, limit: l, total, leaves });
   } catch (err) {

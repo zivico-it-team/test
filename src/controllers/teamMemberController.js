@@ -3,6 +3,11 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const { toPublicUser } = require("../utils/userNormalizer");
 
+const normalizeOptionalEmail = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || null;
+};
+
 const createTeamMember = async (req, res) => {
   try {
     const {
@@ -26,15 +31,20 @@ const createTeamMember = async (req, res) => {
       employeeId,
     } = req.body;
 
-    if (!name || !userName || !email || !password) {
-      return res.status(400).json({ message: "name, userName, email, password required" });
+    if (!name || !userName || !password) {
+      return res.status(400).json({ message: "name, userName, password required" });
     }
 
-    const emailLower = String(email).toLowerCase();
+    const emailLower = normalizeOptionalEmail(email);
+    const uniqueChecks = [{ userName }];
+
+    if (emailLower) {
+      uniqueChecks.push({ email: emailLower });
+    }
 
     const exists = await User.findOne({
       where: {
-        [Op.or]: [{ email: emailLower }, { userName }],
+        [Op.or]: uniqueChecks,
       },
     });
     if (exists) return res.status(409).json({ message: "User already exists" });

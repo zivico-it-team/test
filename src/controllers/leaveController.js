@@ -111,10 +111,17 @@ const calcDaysInclusive = (fromDate, toDate) => {
 
 const toLeaveJson = (l) => {
   const o = typeof l.toJSON === "function" ? l.toJSON() : l;
+  const includedUser =
+    o.user && typeof o.user === "object" ? { ...o.user, _id: o.user.id || o.user._id || o.userId } : null;
+  const includedActionBy =
+    o.actionBy && typeof o.actionBy === "object"
+      ? { ...o.actionBy, _id: o.actionBy.id || o.actionBy._id || o.actionById }
+      : null;
   o._id = o.id;
   // keep old field names
-  o.user = o.userId;
-  o.actionBy = o.actionById;
+  o.user = includedUser || o.userId;
+  o.actionBy = includedActionBy || o.actionById;
+  o.actionByName = includedActionBy?.name || "";
   return o;
 };
 
@@ -295,6 +302,10 @@ const pendingLeaves = async (req, res) => {
 // ✅ Manager/Admin → Approve/Reject (with remark)
 const updateLeaveStatus = async (req, res) => {
   try {
+    if (String(req.user?.role || "").toLowerCase() !== "manager") {
+      return res.status(403).json({ message: "Only managers can approve or reject leave requests" });
+    }
+
     const { leaveId } = req.params;
     const { status, remark } = req.body;
 

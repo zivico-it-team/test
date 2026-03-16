@@ -123,6 +123,7 @@ const purgeUserRecords = async (userId, transaction) => {
       assignedToId: "",
       assignedDate: null,
       leadPool: "SL_EMP_UNASSIGNED",
+      wasEverAssigned: true,
     },
     { where: { assignedToId: id }, transaction }
   );
@@ -192,9 +193,14 @@ const addManager = async (req, res) => {
 const addEmployee = async (req, res) => {
   try {
     const { name, userName, email, password, phone } = req.body;
+    const requestedRole = String(req.body?.role || "employee").trim().toLowerCase();
 
     if (!name || !userName || !password) {
       return res.status(400).json({ message: "name, userName and password are required" });
+    }
+
+    if (!["employee", "manager"].includes(requestedRole)) {
+      return res.status(400).json({ message: "Invalid role. Allowed roles: employee, manager" });
     }
 
     const normalizedEmail = normalizeOptionalEmail(email);
@@ -207,7 +213,7 @@ const addEmployee = async (req, res) => {
       phone,
       userName,
       password: hashed,
-      role: "employee",
+      role: requestedRole,
       professional: extractProfessional(req.body),
       emergencyContact: toPlainObject(req.body.emergencyContact, {}),
       bank: toPlainObject(req.body.bank, {}),

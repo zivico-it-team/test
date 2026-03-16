@@ -33,7 +33,7 @@ const admin = require("../controllers/leaveAdminController");
  *                 approved: { type: number, example: 4 }
  *                 rejected: { type: number, example: 4 }
  */
-router.get("/summary", protect, authorize("manager", "admin"), admin.adminLeaveSummary);
+router.get("/summary", protect, authorize("manager", "admin", "hr"), admin.adminLeaveSummary);
 
 /**
  * @swagger
@@ -60,7 +60,7 @@ router.get("/summary", protect, authorize("manager", "admin"), admin.adminLeaveS
  *       200:
  *         description: Paginated leaves list
  */
-router.get("/list", protect, authorize("manager", "admin"), admin.adminLeaveList);
+router.get("/list", protect, authorize("manager", "admin", "hr"), admin.adminLeaveList);
 
 /**
  * @swagger

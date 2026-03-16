@@ -42,6 +42,32 @@ router.get("/monthly", protect, authorize("manager", "admin"), t.monthlyGrid);
 
 /**
  * @swagger
+ * /api/attendance-tracker/export:
+ *   get:
+ *     summary: Monthly attendance export data (Manager/Admin/HR)
+ *     tags: [AttendanceTracker]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: month
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Summary rows and detailed attendance export rows
+ */
+router.get("/export", protect, authorize("manager", "admin"), t.monthlyExport);
+
+/**
+ * @swagger
  * /api/attendance-tracker/details:
  *   get:
  *     summary: Day details for modal (checkin/out + tea/lunch breaks)
