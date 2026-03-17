@@ -2,6 +2,7 @@ const { Op } = require("sequelize");
 const Leave = require("../models/Leave");
 const Notification = require("../models/Notification");
 const User = require("../models/User");
+const { sendLeaveApplicationEmail } = require("../services/emailService");
 
 const LEGACY_POLICY_TOTALS = {
   annual: 21,
@@ -267,25 +268,40 @@ const applyLeave = async (req, res) => {
 
     const employeeName = String(req.user?.name || req.user?.userName || "An employee").trim();
     const reportingManager = normalizeValue(req.user?.professional?.reportingManager);
+    const employeeDepartment = normalizeValue(req.user?.professional?.department);
     const allPotentialRecipients = await User.findAll({
       attributes: ["id", "name", "email", "userName", "role", "professional"],
     });
 
     const recipientIds = new Set();
+    const recipientEmailRoles = new Map();
+
     for (const candidate of allPotentialRecipients) {
       if (String(candidate.id) === String(userId)) {
         continue;
       }
 
       const role = normalizeValue(candidate.role);
-      const hrUser = isHRUser(candidate);
-      const directManagerMatch =
-        reportingManager && role === "manager" && getUserKeys(candidate).includes(reportingManager);
-      const fallbackManager = !reportingManager && role === "manager" && !hrUser;
+      const candidateDepartment = normalizeValue(candidate.professional?.department);
+      const isHR = role === 'hr';
+      const isDepartmentManager = role === 'manager' && candidateDepartment === employeeDepartment;
+      const isReportingManager = role === 'manager' && reportingManager && getUserKeys(candidate).includes(reportingManager);
 
-      if (role === "admin" || hrUser || directManagerMatch || fallbackManager) {
+      if (role === "admin" || isHR || isDepartmentManager || isReportingManager) {
         recipientIds.add(candidate.id);
+        if (candidate.email) {
+          // prefer more privileged role when multiple roles share same email
+          const existing = recipientEmailRoles.get(candidate.email);
+          if (!existing || existing === 'employee') {
+            recipientEmailRoles.set(candidate.email, role);
+          }
+        }
       }
+    }
+
+    // Add employee's own email for confirmation
+    if (req.user.email) {
+      recipientEmailRoles.set(req.user.email, 'employee');
     }
 
     if (recipientIds.size > 0) {
@@ -315,6 +331,34 @@ const applyLeave = async (req, res) => {
           },
         }))
       );
+    }
+
+    // Send emails to recipients
+    if (recipientEmailRoles.size > 0) {
+      const clientBaseUrl = String(process.env.CLIENT_URL || "").replace(/\/$/, "");
+      const getLinkForRole = (role) => {
+        const normalized = normalizeValue(role);
+        if (!clientBaseUrl) return "";
+        if (normalized === "admin") return `${clientBaseUrl}/admin/leave`;
+        if (normalized === "hr") return `${clientBaseUrl}/hr/leave`;
+        if (normalized === "manager") return `${clientBaseUrl}/manager/leave-requests`;
+        return `${clientBaseUrl}/employee/leave`;
+      };
+
+      const emailPromises = Array.from(recipientEmailRoles.entries()).map(([email, role]) =>
+        sendLeaveApplicationEmail({
+          to: email,
+          employeeName,
+          leaveType: toLeaveLabel(requestedType),
+          fromDate: from,
+          toDate: to,
+          isHalfDay: halfDayRequested,
+          session: halfDayRequested ? String(session).toLowerCase() : null,
+          reason: reason || "",
+          actionLink: getLinkForRole(role),
+        }).catch(err => console.error(`Failed to send email to ${email}:`, err))
+      );
+      await Promise.allSettled(emailPromises);
     }
 
     res.status(201).json({ message: "Leave applied", leave: toLeaveJson(leave) });
