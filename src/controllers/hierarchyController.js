@@ -16,6 +16,12 @@ const parseProfessional = (value) => {
 
 const pickUser = (u) => {
   const normalized = toPublicUser(u);
+  const professional = parseProfessional(normalized?.professional);
+  const address = [normalized?.addressLine, normalized?.city, normalized?.state]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ");
+
   return {
     _id: normalized._id,
     id: normalized.id,
@@ -23,10 +29,17 @@ const pickUser = (u) => {
     email: normalized.email,
     phone: normalized.phone || "",
     role: normalized.role,
-    designation: parseProfessional(normalized?.professional)?.designation || "",
-    teamName: parseProfessional(normalized?.professional)?.teamName || "",
-    department: parseProfessional(normalized?.professional)?.department || "",
-    reportingManager: parseProfessional(normalized?.professional)?.reportingManager || "",
+    employeeId: normalized.employeeId || professional?.employeeId || "",
+    designation: professional?.designation || "",
+    teamName: professional?.teamName || "",
+    department: professional?.department || "",
+    reportingManager: professional?.reportingManager || "",
+    joiningDate: professional?.joiningDate || null,
+    workLocation: professional?.workLocation || "",
+    gender: normalized.gender || "",
+    dob: normalized.dob || null,
+    bio: normalized.bio || "",
+    address,
     profileImageUrl: normalized.profileImageUrl || "",
     profilePicture: normalized.profilePicture || "",
     profileImageFileName: normalized.profileImageFileName || "",
@@ -50,6 +63,12 @@ const hierarchyOverview = async (req, res) => {
         "name",
         "email",
         "phone",
+        "dob",
+        "gender",
+        "bio",
+        "addressLine",
+        "city",
+        "state",
         "role",
         "professional",
         "profileImageUrl",
