@@ -217,6 +217,21 @@ const applyLeave = async (req, res) => {
 
     const totalDays = halfDayRequested ? 0.5 : calcDaysInclusive(from, to);
 
+    const existingPendingSameTypeLeave = await Leave.findOne({
+      where: {
+        userId,
+        type: requestedType,
+        status: "pending",
+      },
+      attributes: ["id"],
+    });
+
+    if (existingPendingSameTypeLeave) {
+      return res.status(400).json({
+        message: `You already have a pending ${toLeaveLabel(requestedType).toLowerCase()} leave request. Wait until it is approved or rejected before applying again.`,
+      });
+    }
+
     // Prevent overlapping leaves (pending/approved)
     const overlap = await Leave.findOne({
       where: {
