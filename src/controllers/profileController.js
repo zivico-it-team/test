@@ -80,8 +80,15 @@ exports.updateMyProfile = async (req, res, next) => {
 
     if (updateDoc.email !== undefined) {
       const normalizedEmail = String(updateDoc.email || "").trim().toLowerCase() || null;
-      if (user.role === "admin" && normalizedEmail !== (user.email || null)) {
-        return res.status(400).json({ success: false, message: "Email cannot be changed" });
+      if (normalizedEmail && normalizedEmail !== (user.email || null)) {
+        const existingUser = await User.findOne({
+          where: { email: normalizedEmail },
+          attributes: ["id"],
+        });
+
+        if (existingUser && String(existingUser.id) !== String(user.id)) {
+          return res.status(409).json({ success: false, message: "Email already exists" });
+        }
       }
       updateDoc.email = normalizedEmail;
     }

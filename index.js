@@ -80,10 +80,6 @@ app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "5mb" }));
 app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || "5mb" }));
 
-// Connect DB then seed
-connectDB();
-seedAdmin();
-
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get("/", (req, res) => {
@@ -103,6 +99,7 @@ app.use("/api/leaderboard", require("./src/routes/leaderboardRoutes"));
 app.use("/api/notifications", require("./src/routes/notificationRoutes"));
 app.use("/api/profile", require("./src/routes/profileRoutes"));
 app.use("/api/profile", require("./src/routes/profilePhotoRoutes"));
+app.use("/api/health", require("./src/routes/healthRoutes"));
 app.use("/api/team", require("./src/routes/teamRoutes"));
 app.use("/api/attendance-tracker", require("./src/routes/attendanceTrackerRoutes"));
 app.use("/api/hierarchy", require("./src/routes/hierarchyRoutes"));
@@ -150,7 +147,20 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log("CORS allowed origins:", allowedOrigins.join(", "));
-});
+
+const startServer = async () => {
+  try {
+    await connectDB();
+    await seedAdmin();
+
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log("CORS allowed origins:", allowedOrigins.join(", "));
+    });
+  } catch (error) {
+    console.error("Failed to start server", error);
+    process.exit(1);
+  }
+};
+
+startServer();
