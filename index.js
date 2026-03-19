@@ -82,8 +82,10 @@ app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-app.get("/", (req, res) => {
-  res.send("CRM Backend is running");
+app.get("/", (_req, res) => {
+  // Do not expose backend banner on the root domain.
+  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+  res.status(404).end();
 });
 
 app.use("/api/auth", require("./src/routes/authRoutes"));
