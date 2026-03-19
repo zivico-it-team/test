@@ -27,6 +27,37 @@ const sanitizeStoredImageUrl = (value) => {
   return normalizeStoredImageUrl(value);
 };
 
+const toNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeLeaveBalancePayload = (value) => {
+  const raw = toPlainObject(value, {});
+  const normalized = {};
+
+  for (const [rawType, rawConfig] of Object.entries(raw)) {
+    const type = String(rawType || "").trim().toLowerCase();
+    const key = type === "medical" ? "special" : type;
+
+    if (!["annual", "casual", "special", "unpaid"].includes(key)) {
+      continue;
+    }
+
+    const configObject = toPlainObject(rawConfig, null);
+    const totalSource =
+      configObject && typeof configObject === "object"
+        ? configObject.total ?? configObject.assigned ?? configObject.allocation ?? rawConfig
+        : rawConfig;
+
+    normalized[key] = {
+      total: Math.max(0, toNumber(totalSource, 0)),
+    };
+  }
+
+  return normalized;
+};
+
 const normalizeApprovalStatus = (value, fallback = "approved") => {
   const normalized = String(value || fallback).trim().toLowerCase();
   return ["pending", "approved"].includes(normalized) ? normalized : fallback;
@@ -59,7 +90,7 @@ const extractProfessional = (payload = {}, existingProfessional = {}) => {
       payload.department ??
       existing.department ??
       "",
-    ...(payloadLeaveBalance !== undefined ? { leaveBalance: toPlainObject(payloadLeaveBalance, {}) } : {}),
+    ...(payloadLeaveBalance !== undefined ? { leaveBalance: normalizeLeaveBalancePayload(payloadLeaveBalance) } : {}),
   };
 };
 

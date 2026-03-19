@@ -81,7 +81,9 @@ const buildUserPolicyTotals = (user = {}) => {
       hasConfiguredTypes = true;
       const configObject = toPlainObject(rawConfig, null);
       const configuredTotal =
-        configObject && typeof configObject === "object" ? configObject.total : rawConfig;
+        configObject && typeof configObject === "object"
+          ? configObject.total ?? configObject.assigned ?? configObject.allocation ?? rawConfig
+          : rawConfig;
       normalizedPolicy[typeKey] = Math.max(0, toNumber(configuredTotal, 0));
     }
   }
@@ -216,9 +218,21 @@ const toLeaveJson = (l) => {
 const applyLeave = async (req, res) => {
   try {
     const userId = req.user._id;
+    const freshUserRecord = await User.findByPk(userId, {
+      attributes: ["id", "name", "email", "userName", "role", "professional"],
+    });
+
+    if (!freshUserRecord) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const actorUser =
+      typeof freshUserRecord.toJSON === "function" ? freshUserRecord.toJSON() : freshUserRecord;
+    actorUser._id = actorUser.id || userId;
+
     const { type, fromDate, toDate, reason, isHalfDay, session } = req.body;
     const requestedType = getLeaveTypeKey(type);
-    const policyTotals = buildUserPolicyTotals(req.user);
+    const policyTotals = buildUserPolicyTotals(actorUser);
     const halfDayRequested = toBoolean(isHalfDay);
 
     if (!type) return res.status(400).json({ message: "type is required" });
@@ -320,9 +334,9 @@ const applyLeave = async (req, res) => {
       status: "pending",
     });
 
-    const employeeName = String(req.user?.name || req.user?.userName || "An employee").trim();
-    const reportingManager = normalizeValue(req.user?.professional?.reportingManager);
-    const employeeDepartment = normalizeValue(req.user?.professional?.department);
+    const employeeName = String(actorUser?.name || actorUser?.userName || "An employee").trim();
+    const reportingManager = normalizeValue(actorUser?.professional?.reportingManager);
+    const employeeDepartment = normalizeValue(actorUser?.professional?.department);
     const allPotentialRecipients = await User.findAll({
       attributes: ["id", "name", "email", "userName", "role", "professional"],
     });
@@ -354,8 +368,8 @@ const applyLeave = async (req, res) => {
     }
 
     // Add employee's own email for confirmation
-    if (req.user.email) {
-      recipientEmailRoles.set(req.user.email, 'employee');
+    if (actorUser.email) {
+      recipientEmailRoles.set(actorUser.email, 'employee');
     }
 
     if (recipientIds.size > 0) {
@@ -439,7 +453,16 @@ const myLeaves = async (req, res) => {
 const leaveSummary = async (req, res) => {
   try {
     const userId = req.user._id;
-    const policyTotals = buildUserPolicyTotals(req.user);
+    const freshUserRecord = await User.findByPk(userId, {
+      attributes: ["id", "role", "professional"],
+    });
+    const policyTotals = buildUserPolicyTotals(
+      freshUserRecord
+        ? typeof freshUserRecord.toJSON === "function"
+          ? freshUserRecord.toJSON()
+          : freshUserRecord
+        : req.user
+    );
 
     const [totalApplications, approvedCount, pendingCount] = await Promise.all([
       Leave.count({ where: { userId } }),
@@ -512,8 +535,8 @@ const pendingLeaves = async (req, res) => {
 // ✅ Manager/Admin → Approve/Reject (with remark)
 const updateLeaveStatus = async (req, res) => {
   try {
-    if (String(req.user?.role || "").toLowerCase() !== "manager") {
-      return res.status(403).json({ message: "Only managers can approve or reject leave requests" });
+    if (!["manager", "admin", "hr"].includes(String(req.user?.role || "").toLowerCase())) {
+      return res.status(403).json({ message: "Only managers, admins, or HR can approve or reject leave requests" });
     }
 
     const { leaveId } = req.params;

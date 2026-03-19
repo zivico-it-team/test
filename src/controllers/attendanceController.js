@@ -113,14 +113,21 @@ const getEmploymentStartDate = (user = {}) => {
   return dateOnly(createdDate);
 };
 
-const getTrackedDayWindow = ({ year, month, lastDay, employmentStartDate, today = new Date() }) => {
+const getTrackedDayWindow = ({
+  year,
+  month,
+  lastDay,
+  employmentStartDate,
+  today = new Date(),
+  includeFutureMonths = false,
+}) => {
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
 
   let endDay = lastDay;
   if (year > currentYear || (year === currentYear && month > currentMonth)) {
-    endDay = 0;
-  } else if (year === currentYear && month === currentMonth) {
+    endDay = includeFutureMonths ? lastDay : 0;
+  } else if (year === currentYear && month === currentMonth && !includeFutureMonths) {
     endDay = Math.min(lastDay, today.getDate());
   }
 
@@ -402,7 +409,9 @@ exports.monthCalendar = async (req, res) => {
       month,
       lastDay,
       employmentStartDate,
+      includeFutureMonths: true,
     });
+    const todayKey = getDateKey(new Date());
 
     const [records, leaves] = await Promise.all([
       Attendance.findAll({
@@ -429,7 +438,7 @@ exports.monthCalendar = async (req, res) => {
       year,
       month,
       trackedStartDay,
-      trackedLastDay,
+      trackedLastDay: lastDay,
       includeSundays: true,
     });
 
@@ -455,10 +464,11 @@ exports.monthCalendar = async (req, res) => {
       const attendance = attendanceByDateKey.get(key);
       const hasCheckIn = !!attendance?.checkInAt;
       const onLeave = leaveDateKeys.has(key);
+      const isFutureDay = key > todayKey;
 
       days[key] = {
         dateKey: key,
-        status: hasCheckIn ? "present" : onLeave ? "leave" : off ? "off" : "absent",
+        status: hasCheckIn ? "present" : onLeave ? "leave" : isFutureDay ? (off ? "off" : null) : off ? "off" : "absent",
         checkInAt: attendance?.checkInAt || null,
         checkOutAt: attendance?.checkOutAt || null,
         totalWorkedSeconds: attendance?.totalWorkedSeconds || 0,
@@ -488,6 +498,7 @@ exports.monthRecords = async (req, res) => {
       month,
       lastDay,
       employmentStartDate,
+      includeFutureMonths: true,
     });
 
     const [records, leaves] = await Promise.all([
@@ -522,7 +533,7 @@ exports.monthRecords = async (req, res) => {
       year,
       month,
       trackedStartDay,
-      trackedLastDay,
+      trackedLastDay: lastDay,
       includeSundays: true,
     });
 

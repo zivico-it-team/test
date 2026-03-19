@@ -80,14 +80,21 @@ const getEmployeeAttendanceStartDate = (employee) => {
   return startOfDay(createdDate);
 };
 
-const getTrackedDayWindow = ({ year, month, dim, startDate, today = new Date() }) => {
+const getTrackedDayWindow = ({
+  year,
+  month,
+  dim,
+  startDate,
+  today = new Date(),
+  includeFutureMonths = false,
+}) => {
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
 
   let endDay = dim;
   if (year > currentYear || (year === currentYear && month > currentMonth)) {
-    endDay = 0;
-  } else if (year === currentYear && month === currentMonth) {
+    endDay = includeFutureMonths ? dim : 0;
+  } else if (year === currentYear && month === currentMonth && !includeFutureMonths) {
     endDay = Math.min(dim, today.getDate());
   }
 
@@ -248,6 +255,7 @@ const buildMonthlyTrackerData = async ({ year, month, search }) => {
       month,
       dim,
       startDate: employeeStartDate,
+      includeFutureMonths: true,
     });
     const days = {};
     let P = 0;
@@ -263,10 +271,12 @@ const buildMonthlyTrackerData = async ({ year, month, search }) => {
 
       let statusCode = "-";
 
-      if (trackedStartDay === 0 || day < trackedStartDay || day > trackedLastDay) {
+      if (trackedStartDay === 0 || day < trackedStartDay) {
         statusCode = "-";
       } else if (leaveInfo) {
         statusCode = "OL";
+      } else if (dk > todayKey || day > trackedLastDay) {
+        statusCode = "-";
       } else if (isWeekend(year, month, day)) {
         statusCode = "W";
       } else if (dk <= todayKey) {

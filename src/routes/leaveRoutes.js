@@ -266,6 +266,6 @@ router.get("/pending", protect, authorize("manager", "admin"), pendingLeaves);
  *       500:
  *         description: Server error
  */
-router.patch("/:leaveId/status", protect, authorize("manager"), updateLeaveStatus);
+router.patch("/:leaveId/status", protect, authorize("manager", "admin"), updateLeaveStatus);
 
 module.exports = router;
