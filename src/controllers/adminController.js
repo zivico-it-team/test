@@ -27,6 +27,11 @@ const sanitizeStoredImageUrl = (value) => {
   return normalizeStoredImageUrl(value);
 };
 
+const normalizeApprovalStatus = (value, fallback = "approved") => {
+  const normalized = String(value || fallback).trim().toLowerCase();
+  return ["pending", "approved"].includes(normalized) ? normalized : fallback;
+};
+
 const extractProfessional = (payload = {}, existingProfessional = {}) => {
   const professionalPayload = toPlainObject(payload.professional, {});
   const existing = normalizeProfessional(existingProfessional);
@@ -166,6 +171,8 @@ const addManager = async (req, res) => {
       userName,
       password: hashed,
       role: "manager",
+      approvalStatus: "approved",
+      approvedAt: new Date(),
       professional: extractProfessional(req.body),
       emergencyContact: toPlainObject(req.body.emergencyContact, {}),
       bank: toPlainObject(req.body.bank, {}),
@@ -214,6 +221,8 @@ const addEmployee = async (req, res) => {
       userName,
       password: hashed,
       role: requestedRole,
+      approvalStatus: "approved",
+      approvedAt: new Date(),
       professional: extractProfessional(req.body),
       emergencyContact: toPlainObject(req.body.emergencyContact, {}),
       bank: toPlainObject(req.body.bank, {}),
@@ -378,8 +387,19 @@ const deleteManager = async (req, res) => {
 // GET all employees
 const getEmployees = async (req, res) => {
   try {
+    const approvalStatus = normalizeApprovalStatus(req.query?.approvalStatus, "approved");
+    const requestedStatus = String(req.query?.approvalStatus || "approved").trim().toLowerCase();
+    const where = { role: "employee" };
+
+    if (requestedStatus !== "all") {
+      if (!["pending", "approved", ""].includes(requestedStatus)) {
+        return res.status(400).json({ message: "approvalStatus must be pending, approved, or all" });
+      }
+      where.approvalStatus = approvalStatus;
+    }
+
     const employees = await User.findAll({
-      where: { role: "employee" },
+      where,
       attributes: { exclude: ["password"] },
       order: [["createdAt", "DESC"]],
     });
@@ -494,10 +514,59 @@ const updateEmployee = async (req, res) => {
       update.role = nextRole;
     }
 
+    if (req.body.approvalStatus !== undefined) {
+      const actorRole = String(req.user?.role || "").trim().toLowerCase();
+      if (actorRole !== "admin") {
+        return res.status(403).json({ message: "Only admin can change employee access approval" });
+      }
+
+      const nextApprovalStatus = normalizeApprovalStatus(req.body.approvalStatus, "approved");
+      update.approvalStatus = nextApprovalStatus;
+      update.approvedAt = nextApprovalStatus === "approved" ? new Date() : null;
+    }
+
     await employee.update(update);
 
     const updated = await User.findByPk(id, { attributes: { exclude: ["password"] } });
     res.json(toPublicUser(updated));
+  } catch (err) {
+    return handleAdminUserError(res, err);
+  }
+};
+
+const getPendingEmployeeAccess = async (req, res) => {
+  try {
+    const employees = await User.findAll({
+      where: { role: "employee", approvalStatus: "pending" },
+      attributes: { exclude: ["password"] },
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.json(employees.map(toPublicUser));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const approveEmployeeAccess = async (req, res) => {
+  try {
+    const employee = await User.findOne({
+      where: { id: req.params.id, role: "employee" },
+    });
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    await employee.update({
+      approvalStatus: "approved",
+      approvedAt: new Date(),
+    });
+
+    res.json({
+      message: "Employee access approved successfully",
+      employee: toPublicUser(employee),
+    });
   } catch (err) {
     return handleAdminUserError(res, err);
   }
@@ -652,6 +721,8 @@ module.exports = {
   getEmployeeById,
   updateEmployee,
   deleteEmployee,
+  getPendingEmployeeAccess,
+  approveEmployeeAccess,
 
   getAdminProfile,
   updateAdminProfile,

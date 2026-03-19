@@ -32,6 +32,10 @@ const toSessionUser = (user) => {
   };
 };
 
+const isPendingEmployee = (user) =>
+  String(user?.role || "").trim().toLowerCase() === "employee" &&
+  String(user?.approvalStatus || "approved").trim().toLowerCase() !== "approved";
+
 const login = async (req, res) => {
   try {
     const { userName, email, identifier, password } = req.body;
@@ -51,6 +55,9 @@ const login = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: "Invalid password" });
+    if (isPendingEmployee(user)) {
+      return res.status(403).json({ message: "Your account is waiting for admin approval" });
+    }
 
     res.json(toSessionUser(user));
   } catch (err) {
@@ -103,9 +110,14 @@ const register = async (req, res) => {
       phone: phone || "",
       addressLine: address || "",
       role: "employee",
+      approvalStatus: "pending",
+      approvedAt: null,
     });
 
-    return res.status(201).json(toSessionUser(user));
+    return res.status(201).json({
+      message: "Registration submitted successfully. Wait for admin approval before logging in.",
+      user: toPublicUser(user),
+    });
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }

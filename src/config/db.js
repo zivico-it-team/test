@@ -122,11 +122,59 @@ const runBootstrapMigrations = async () => {
       console.log("Leaves.isHalfDay column added");
     }
 
-    if (!leaveTable?.session) {
-      await queryInterface.addColumn("leaves", "session", {
-        type: DataTypes.STRING(20),
+    if (!userTable?.approvalStatus) {
+      await queryInterface.addColumn("users", "approvalStatus", {
+        type: DataTypes.ENUM("pending", "approved"),
+        allowNull: false,
+        defaultValue: "approved",
+      });
+      console.log("Users.approvalStatus column added");
+    }
+
+    if (!userTable?.approvedAt) {
+      await queryInterface.addColumn("users", "approvedAt", {
+        type: DataTypes.DATE,
         allowNull: true,
         defaultValue: null,
+      });
+      console.log("Users.approvedAt column added");
+    }
+
+    await sequelize.query(`
+      UPDATE users
+      SET approvalStatus = 'approved'
+      WHERE approvalStatus IS NULL OR approvalStatus = ''
+    `);
+
+    const passwordResetTable = await queryInterface.describeTable("password_resets").catch(() => null);
+    if (!passwordResetTable) {
+      await queryInterface.createTable("password_resets", {
+        id: {
+          type: DataTypes.UUID,
+          allowNull: false,
+          primaryKey: true,
+        },
+        user_id: {
+          type: DataTypes.UUID,
+          allowNull: false,
+          references: { model: "users", key: "id" },
+          onUpdate: "CASCADE",
+          onDelete: "CASCADE",
+        },
+        token_hash: {
+          type: DataTypes.STRING(128),
+          allowNull: false,
+          unique: true,
+        },
+        expires_at: {
+          type: DataTypes.DATE,
+          allowNull: false,
+        },
+        created_at: {
+          type: DataTypes.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+        },
       });
       console.log("Leaves.session column added");
     }
