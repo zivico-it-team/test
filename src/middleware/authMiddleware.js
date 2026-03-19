@@ -3,6 +3,47 @@ const User = require("../models/User");
 const { toPlainObject } = require("../utils/userNormalizer");
 
 const normalizeValue = (value) => String(value || "").trim().toLowerCase();
+const AUTH_CACHE_TTL_MS = Number(process.env.AUTH_USER_CACHE_TTL_MS || 60000);
+const AUTH_CACHE_MAX_USERS = Number(process.env.AUTH_USER_CACHE_MAX_USERS || 500);
+const AUTH_USER_CACHE_KEY = "__zivico_auth_user_cache__";
+const authUserCache = globalThis[AUTH_USER_CACHE_KEY] || new Map();
+globalThis[AUTH_USER_CACHE_KEY] = authUserCache;
+
+const getCachedUser = (userId) => {
+  if (AUTH_CACHE_TTL_MS <= 0) {
+    return null;
+  }
+
+  const cached = authUserCache.get(userId);
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() > cached.expiresAt) {
+    authUserCache.delete(userId);
+    return null;
+  }
+
+  return cached.user;
+};
+
+const setCachedUser = (userId, user) => {
+  if (AUTH_CACHE_TTL_MS <= 0 || !userId || !user) {
+    return;
+  }
+
+  if (authUserCache.size >= AUTH_CACHE_MAX_USERS) {
+    const firstKey = authUserCache.keys().next().value;
+    if (firstKey) {
+      authUserCache.delete(firstKey);
+    }
+  }
+
+  authUserCache.set(userId, {
+    user,
+    expiresAt: Date.now() + AUTH_CACHE_TTL_MS,
+  });
+};
 
 const isHRStaff = (user) => {
   if (normalizeValue(user?.role) === "hr") {
@@ -37,14 +78,17 @@ const protect = async (req, res, next) => {
 
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = String(decoded?.id || "").trim();
+    if (!userId) {
+      return res.status(401).json({ message: "Invalid token payload" });
+    }
 
-    const user = await User.findByPk(decoded.id, {
-      attributes: { exclude: ["password"] },
-    });
+    let user = getCachedUser(userId);
 
     if (!user) {
-      return res.status(401).json({ message: "User not found" });
-    }
+      const dbUser = await User.findByPk(userId, {
+        attributes: { exclude: ["password"] },
+      });
 
     if (
       normalizeValue(user.role) === "employee" &&
@@ -57,7 +101,7 @@ const protect = async (req, res, next) => {
     const u = user.toJSON();
     u._id = u.id;
 
-    req.user = u;
+    req.user = { ...user };
     next();
   } catch (err) {
     return res.status(401).json({ message: "Invalid token" });
