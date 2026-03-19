@@ -33,11 +33,13 @@ const isSunday = (year, month1to12, day) => {
   return dt.getDay() === 0; // 0 = Sunday
 };
 
-const countWorkingDaysInMonth = (year, month1to12, endDay = null) => {
+const countWorkingDaysInMonth = (year, month1to12, startDay = 1, endDay = null) => {
   const lastDay = new Date(year, month1to12, 0).getDate();
+  const normalizedStartDay = Math.max(1, Math.min(lastDay, Number(startDay) || 1));
   const limit = endDay === null ? lastDay : Math.max(0, Math.min(lastDay, endDay));
+  if (limit < normalizedStartDay) return 0;
   let working = 0;
-  for (let d = 1; d <= limit; d++) {
+  for (let d = normalizedStartDay; d <= limit; d++) {
     if (!isSunday(year, month1to12, d)) working++;
   }
   return working;
@@ -54,6 +56,53 @@ const dateOnly = (value) => {
   const dt = new Date(value);
   dt.setHours(0, 0, 0, 0);
   return dt;
+};
+
+const getEmploymentStartDate = (user = {}) => {
+  const rawCreatedAt = user?.createdAt || user?.created_at || null;
+  const createdDate = rawCreatedAt ? new Date(rawCreatedAt) : new Date();
+  if (Number.isNaN(createdDate.getTime())) {
+    return dateOnly(new Date());
+  }
+  return dateOnly(createdDate);
+};
+
+const getTrackedDayWindow = ({ year, month, lastDay, employmentStartDate, today = new Date() }) => {
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+
+  let endDay = lastDay;
+  if (year > currentYear || (year === currentYear && month > currentMonth)) {
+    endDay = 0;
+  } else if (year === currentYear && month === currentMonth) {
+    endDay = Math.min(lastDay, today.getDate());
+  }
+
+  if (endDay <= 0) {
+    return { startDay: 0, endDay: 0 };
+  }
+
+  const monthEnd = new Date(year, month - 1, endDay);
+  monthEnd.setHours(0, 0, 0, 0);
+
+  if (employmentStartDate && employmentStartDate.getTime() > monthEnd.getTime()) {
+    return { startDay: 0, endDay: 0 };
+  }
+
+  let startDay = 1;
+  if (
+    employmentStartDate &&
+    employmentStartDate.getFullYear() === year &&
+    employmentStartDate.getMonth() + 1 === month
+  ) {
+    startDay = employmentStartDate.getDate();
+  }
+
+  if (startDay > endDay) {
+    return { startDay: 0, endDay: 0 };
+  }
+
+  return { startDay, endDay };
 };
 
 // ✅ POST /api/attendance/check-in
@@ -192,17 +241,13 @@ exports.monthSummary = async (req, res) => {
 
     const { year, month } = ym;
     const { start, end, lastDay } = monthKeyRange(year, month);
-
-    const today = new Date();
-    const currentYear = today.getFullYear();
-    const currentMonth = today.getMonth() + 1;
-
-    let trackedLastDay = lastDay;
-    if (year > currentYear || (year === currentYear && month > currentMonth)) {
-      trackedLastDay = 0;
-    } else if (year === currentYear && month === currentMonth) {
-      trackedLastDay = today.getDate();
-    }
+    const employmentStartDate = getEmploymentStartDate(req.user);
+    const { startDay: trackedStartDay, endDay: trackedLastDay } = getTrackedDayWindow({
+      year,
+      month,
+      lastDay,
+      employmentStartDate,
+    });
 
     const [records, leaves] = await Promise.all([
       Attendance.findAll({
@@ -228,7 +273,7 @@ exports.monthSummary = async (req, res) => {
         .filter((r) => {
           if (!r.checkInAt) return false;
           const day = Number(String(r.dateKey).split("-")[2]);
-          return day <= trackedLastDay && !isSunday(year, month, day);
+          return day >= trackedStartDay && day <= trackedLastDay && !isSunday(year, month, day);
         })
         .map((r) => r.dateKey)
     );
@@ -236,8 +281,9 @@ exports.monthSummary = async (req, res) => {
     const presentWorkingDays = presentDayKeys.size;
 
     const leaveDayKeys = new Set();
-    if (trackedLastDay > 0) {
-      const monthStart = dateOnly(`${start}T00:00:00`);
+    if (trackedStartDay > 0 && trackedLastDay > 0) {
+      const trackedStart = `${year}-${String(month).padStart(2, "0")}-${String(trackedStartDay).padStart(2, "0")}`;
+      const monthStart = dateOnly(`${trackedStart}T00:00:00`);
       const monthEnd = dateOnly(`${end}T00:00:00`);
       const trackedEnd = new Date(year, month - 1, trackedLastDay);
       trackedEnd.setHours(0, 0, 0, 0);
@@ -269,11 +315,11 @@ exports.monthSummary = async (req, res) => {
     const lateArrivals = records.filter((r) => {
       if (!r.isLate) return false;
       const day = Number(String(r.dateKey).split("-")[2]);
-      return day <= trackedLastDay;
+      return day >= trackedStartDay && day <= trackedLastDay;
     }).length;
     const totalSeconds = records.reduce((sum, r) => sum + (r.totalWorkedSeconds || 0), 0);
 
-    const workingDays = countWorkingDaysInMonth(year, month, trackedLastDay);
+    const workingDays = countWorkingDaysInMonth(year, month, trackedStartDay, trackedLastDay);
     const absent = Math.max(0, workingDays - presentWorkingDays - leaveWorkingDays);
 
     return res.json({
@@ -302,7 +348,13 @@ exports.monthCalendar = async (req, res) => {
 
     const { year, month } = ym;
     const { start, end, lastDay } = monthKeyRange(year, month);
-    const todayKey = getDateKey();
+    const employmentStartDate = getEmploymentStartDate(req.user);
+    const { startDay: trackedStartDay, endDay: trackedLastDay } = getTrackedDayWindow({
+      year,
+      month,
+      lastDay,
+      employmentStartDate,
+    });
 
     const [records, leaves] = await Promise.all([
       Attendance.findAll({
@@ -341,6 +393,10 @@ exports.monthCalendar = async (req, res) => {
 
     const days = {};
     for (const r of records) {
+      const day = Number(String(r.dateKey).split("-")[2]);
+      if (day < trackedStartDay || day > trackedLastDay) {
+        continue;
+      }
       days[r.dateKey] = {
         dateKey: r.dateKey,
         status: r.checkInAt ? "present" : "absent",
@@ -355,23 +411,23 @@ exports.monthCalendar = async (req, res) => {
     for (let d = 1; d <= lastDay; d++) {
       const key = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
+      if (trackedStartDay === 0 || d < trackedStartDay || d > trackedLastDay) {
+        days[key] = {
+          dateKey: key,
+          status: null,
+          checkInAt: null,
+          checkOutAt: null,
+          totalWorkedSeconds: 0,
+          totalWorkedHours: 0,
+          isLate: false,
+        };
+        continue;
+      }
+
       if (!days[key]) {
         const off = isSunday(year, month, d);
         const dayDate = new Date(year, month - 1, d);
         const onLeave = isOnLeave(dayDate);
-
-        if (key > todayKey && !onLeave) {
-          days[key] = {
-            dateKey: key,
-            status: null,
-            checkInAt: null,
-            checkOutAt: null,
-            totalWorkedSeconds: 0,
-            totalWorkedHours: 0,
-            isLate: false,
-          };
-          continue;
-        }
 
         days[key] = {
           dateKey: key,
@@ -399,7 +455,14 @@ exports.monthRecords = async (req, res) => {
     if (!ym) return res.status(400).json({ success: false, message: "year and month are required" });
 
     const { year, month } = ym;
-    const { start, end } = monthKeyRange(year, month);
+    const { start, end, lastDay } = monthKeyRange(year, month);
+    const employmentStartDate = getEmploymentStartDate(req.user);
+    const { startDay: trackedStartDay, endDay: trackedLastDay } = getTrackedDayWindow({
+      year,
+      month,
+      lastDay,
+      employmentStartDate,
+    });
 
     const [records, leaves] = await Promise.all([
       Attendance.findAll({
@@ -420,11 +483,21 @@ exports.monthRecords = async (req, res) => {
       }),
     ]);
 
-    const attendanceByDateKey = new Map(records.map((r) => [r.dateKey, r]));
+    if (trackedStartDay === 0 || trackedLastDay === 0) {
+      return res.json({ success: true, year, month, records: [] });
+    }
+
+    const filteredRecords = records.filter((r) => {
+      const day = Number(String(r.dateKey).split("-")[2]);
+      return day >= trackedStartDay && day <= trackedLastDay;
+    });
+    const attendanceByDateKey = new Map(filteredRecords.map((r) => [r.dateKey, r]));
 
     const leaveDateKeys = new Set();
-    const monthStart = dateOnly(`${start}T00:00:00`);
-    const monthEnd = dateOnly(`${end}T00:00:00`);
+    const trackedStart = `${year}-${String(month).padStart(2, "0")}-${String(trackedStartDay).padStart(2, "0")}`;
+    const trackedEnd = `${year}-${String(month).padStart(2, "0")}-${String(trackedLastDay).padStart(2, "0")}`;
+    const monthStart = dateOnly(`${trackedStart}T00:00:00`);
+    const monthEnd = dateOnly(`${trackedEnd}T00:00:00`);
 
     for (const leave of leaves) {
       const from = dateOnly(leave.fromDate);
@@ -447,7 +520,7 @@ exports.monthRecords = async (req, res) => {
       }
     }
 
-    const attendanceFormatted = records.map((r) => ({
+    const attendanceFormatted = filteredRecords.map((r) => ({
       _id: r.id,
       dateKey: r.dateKey,
       status: r.checkInAt ? "present" : "absent",
