@@ -494,6 +494,40 @@ const updateLeaveStatus = async (req, res) => {
       actionAt: new Date(),
     });
 
+    const leaveTypeKey = getLeaveTypeKey(leave.type) || String(leave.type || "").trim().toLowerCase();
+    const leaveTypeLabel = leaveTypeKey ? toLeaveLabel(leaveTypeKey) : "Leave";
+    const isSingleDay = formatDateLabel(leave.fromDate) === formatDateLabel(leave.toDate);
+    const leaveDateLabel = isSingleDay
+      ? formatDateLabel(leave.fromDate)
+      : `${formatDateLabel(leave.fromDate)} to ${formatDateLabel(leave.toDate)}`;
+    const managerName = String(req.user?.name || req.user?.userName || "Manager").trim() || "Manager";
+    const normalizedRemark = String(remark || "").trim();
+    const resultMessage = status === "approved"
+      ? `Your ${leaveTypeLabel} leave request for ${leaveDateLabel} was approved by ${managerName}.`
+      : `Your ${leaveTypeLabel} leave request for ${leaveDateLabel} was rejected by ${managerName}.${normalizedRemark ? ` Remark: ${normalizedRemark}` : ""}`;
+
+    try {
+      await Notification.create({
+        userId: leave.userId,
+        title: status === "approved" ? "Leave Request Approved" : "Leave Request Rejected",
+        message: resultMessage,
+        type: "leave_status_update",
+        module: "leave",
+        isRead: false,
+        meta: {
+          leaveId: leave.id,
+          status,
+          actionById: req.user._id,
+          actionByName: managerName,
+          fromDate: leave.fromDate,
+          toDate: leave.toDate,
+          targetPath: "/employee/leave",
+        },
+      });
+    } catch (notificationError) {
+      console.error("Failed to create leave status notification:", notificationError);
+    }
+
     res.json({ message: `Leave ${status}`, leave: toLeaveJson(leave) });
   } catch (err) {
     res.status(500).json({ message: err.message });

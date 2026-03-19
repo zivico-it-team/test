@@ -8,7 +8,7 @@ const {
 
 const router = express.Router();
 
-router.get("/", protect, authorize("employee", "manager", "admin"), listMyNotifications);
-router.patch("/:id/read", protect, authorize("employee", "manager", "admin"), markNotificationAsRead);
+router.get("/", protect, authorize("employee", "manager", "admin", "hr"), listMyNotifications);
+router.patch("/:id/read", protect, authorize("employee", "manager", "admin", "hr"), markNotificationAsRead);
 
 module.exports = router;
