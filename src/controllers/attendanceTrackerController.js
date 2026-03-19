@@ -21,8 +21,8 @@ const endOfDay = (d) => {
 
 const isWeekend = (year, month1to12, day) => {
   const dt = new Date(year, month1to12 - 1, day);
-  const w = dt.getDay(); // 0 Sun, 6 Sat
-  return w === 0 || w === 6;
+  const w = dt.getDay(); // 0 Sun
+  return w === 0;
 };
 
 const daysInMonth = (year, month1to12) => new Date(year, month1to12, 0).getDate();
@@ -265,10 +265,10 @@ const buildMonthlyTrackerData = async ({ year, month, search }) => {
 
       if (trackedStartDay === 0 || day < trackedStartDay || day > trackedLastDay) {
         statusCode = "-";
-      } else if (isWeekend(year, month, day)) {
-        statusCode = "W";
       } else if (leaveInfo) {
         statusCode = "OL";
+      } else if (isWeekend(year, month, day)) {
+        statusCode = "W";
       } else if (dk <= todayKey) {
         const att = attMap.get(key);
         if (!att || !att.checkInAt) {

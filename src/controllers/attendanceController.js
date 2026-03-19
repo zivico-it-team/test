@@ -64,7 +64,14 @@ const dateEnd = (value) => {
   return dt;
 };
 
-const buildLeaveDateKeys = ({ leaves, year, month, trackedStartDay, trackedLastDay }) => {
+const buildLeaveDateKeys = ({
+  leaves,
+  year,
+  month,
+  trackedStartDay,
+  trackedLastDay,
+  includeSundays = false,
+}) => {
   const leaveDateKeys = new Set();
 
   if (trackedStartDay <= 0 || trackedLastDay <= 0) {
@@ -87,7 +94,7 @@ const buildLeaveDateKeys = ({ leaves, year, month, trackedStartDay, trackedLastD
     const cursor = new Date(rangeStart);
     while (cursor.getTime() <= rangeEnd.getTime()) {
       const day = cursor.getDate();
-      if (!isSunday(year, month, day)) {
+      if (includeSundays || !isSunday(year, month, day)) {
         leaveDateKeys.add(getDateKey(cursor));
       }
       cursor.setDate(cursor.getDate() + 1);
@@ -423,6 +430,7 @@ exports.monthCalendar = async (req, res) => {
       month,
       trackedStartDay,
       trackedLastDay,
+      includeSundays: true,
     });
 
     const days = {};
@@ -450,7 +458,7 @@ exports.monthCalendar = async (req, res) => {
 
       days[key] = {
         dateKey: key,
-        status: off ? "off" : hasCheckIn ? "present" : onLeave ? "leave" : "absent",
+        status: hasCheckIn ? "present" : onLeave ? "leave" : off ? "off" : "absent",
         checkInAt: attendance?.checkInAt || null,
         checkOutAt: attendance?.checkOutAt || null,
         totalWorkedSeconds: attendance?.totalWorkedSeconds || 0,
@@ -515,6 +523,7 @@ exports.monthRecords = async (req, res) => {
       month,
       trackedStartDay,
       trackedLastDay,
+      includeSundays: true,
     });
 
     const attendanceFormatted = filteredRecords.map((r) => ({
