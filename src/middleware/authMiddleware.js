@@ -90,23 +90,32 @@ const protect = async (req, res, next) => {
         attributes: { exclude: ["password"] },
       });
 
-      if (
-        normalizeValue(user.role) === "employee" &&
-        normalizeValue(user.approvalStatus || "approved") !== "approved"
-      ) {
-        return res.status(403).json({ message: "Your account is awaiting admin approval" });
+      if (!dbUser) {
+        return res.status(401).json({ message: "User not found" });
       }
 
-      // keep backward compatibility with old Mongo _id usage
-      const u = user.toJSON();
-      u._id = u.id;
-
-      req.user = { ...user };
-      next();
+      user = dbUser.toJSON();
+      user._id = user.id;
+      setCachedUser(userId, user);
     }
+
+    if (
+      normalizeValue(user.role) === "employee" &&
+      normalizeValue(user.approvalStatus || "approved") !== "approved"
+    ) {
+      return res.status(403).json({ message: "Your account is awaiting admin approval" });
+    }
+
+    req.user = { ...user };
+    next();
   } catch (err) {
-  return res.status(401).json({ message: "Invalid token" });
-  };
+    if (err?.name === "TokenExpiredError" || err?.name === "JsonWebTokenError") {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    console.error("Auth middleware error:", err);
+    return res.status(500).json({ message: "Authentication check failed" });
+  }
 };
 
 const authorize = (...roles) => {
@@ -147,4 +156,4 @@ const forbidHRLeadAccess = (req, res, next) => {
   return next();
 };
 
-module.exports = { protect, authorize, authorizeAdminOrHR, isHRStaff, forbidHRLeadAccess };
+module.exports = { authorize, authorizeAdminOrHR, isHRStaff, forbidHRLeadAccess, protect };
