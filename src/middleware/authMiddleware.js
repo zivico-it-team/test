@@ -46,6 +46,13 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ message: "User not found" });
     }
 
+    if (
+      normalizeValue(user.role) === "employee" &&
+      normalizeValue(user.approvalStatus || "approved") !== "approved"
+    ) {
+      return res.status(403).json({ message: "Your account is awaiting admin approval" });
+    }
+
     // keep backward compatibility with old Mongo _id usage
     const u = user.toJSON();
     u._id = u.id;

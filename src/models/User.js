@@ -20,6 +20,12 @@ const User = sequelize.define(
       allowNull: false,
       defaultValue: "employee",
     },
+    approvalStatus: {
+      type: DataTypes.ENUM("pending", "approved"),
+      allowNull: false,
+      defaultValue: "approved",
+    },
+    approvedAt: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
 
     phone: { type: DataTypes.STRING(30), allowNull: true, defaultValue: "" },
     dob: { type: DataTypes.DATE, allowNull: true },
