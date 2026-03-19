@@ -12,6 +12,17 @@ const getDateKey = (d = new Date()) => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
+const startOfDay = (value) => {
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) {
+    const fallback = new Date();
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
+  }
+  dt.setHours(0, 0, 0, 0);
+  return dt;
+};
+
 // GET /api/employee/dashboard/summary
 const dashboardSummary = async (req, res) => {
   try {
@@ -35,16 +46,22 @@ const dashboardSummary = async (req, res) => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const employeeStartDate = startOfDay(req.user?.createdAt || now);
+    const effectiveStart = employeeStartDate > monthStart ? employeeStartDate : monthStart;
 
     const presentDays = await Attendance.count({
       where: {
         userId,
-        checkInAt: { [Op.gte]: monthStart, [Op.lt]: nextMonthStart },
+        checkInAt: { [Op.gte]: effectiveStart, [Op.lt]: nextMonthStart },
       },
     });
 
-    const daysSoFar = Math.max(1, now.getDate());
-    const attendanceRate = Math.round((presentDays / daysSoFar) * 100);
+    const todayStart = startOfDay(now);
+    const daysSoFar =
+      effectiveStart > todayStart
+        ? 0
+        : Math.floor((todayStart.getTime() - effectiveStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const attendanceRate = daysSoFar > 0 ? Math.round((presentDays / daysSoFar) * 100) : 0;
 
     res.json({
       user: {

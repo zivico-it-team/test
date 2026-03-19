@@ -71,6 +71,47 @@ const getActivityDurationSeconds = (activity) => {
   return Math.max(0, Math.floor((end - start) / 1000));
 };
 
+const getEmployeeAttendanceStartDate = (employee) => {
+  const rawCreatedAt = employee?.createdAt || employee?.created_at || null;
+  const createdDate = rawCreatedAt ? new Date(rawCreatedAt) : null;
+  if (!createdDate || Number.isNaN(createdDate.getTime())) {
+    return null;
+  }
+  return startOfDay(createdDate);
+};
+
+const getTrackedDayWindow = ({ year, month, dim, startDate, today = new Date() }) => {
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+
+  let endDay = dim;
+  if (year > currentYear || (year === currentYear && month > currentMonth)) {
+    endDay = 0;
+  } else if (year === currentYear && month === currentMonth) {
+    endDay = Math.min(dim, today.getDate());
+  }
+
+  if (endDay <= 0) {
+    return { startDay: 0, endDay: 0 };
+  }
+
+  const monthEnd = startOfDay(new Date(year, month - 1, endDay));
+  if (startDate && startDate.getTime() > monthEnd.getTime()) {
+    return { startDay: 0, endDay: 0 };
+  }
+
+  let startDay = 1;
+  if (startDate && startDate.getFullYear() === year && startDate.getMonth() + 1 === month) {
+    startDay = startDate.getDate();
+  }
+
+  if (startDay > endDay) {
+    return { startDay: 0, endDay: 0 };
+  }
+
+  return { startDay, endDay };
+};
+
 const buildBreakMap = (activities) => {
   const breakMap = new Map();
 
@@ -123,7 +164,7 @@ const buildMonthlyTrackerData = async ({ year, month, search }) => {
 
   const allEmployees = await User.findAll({
     where: { role: "employee" },
-    attributes: ["id", "name", "email", "userName"],
+    attributes: ["id", "name", "email", "userName", "createdAt"],
     order: [["name", "ASC"]],
   });
 
@@ -201,6 +242,13 @@ const buildMonthlyTrackerData = async ({ year, month, search }) => {
 
   const rows = employees.map((emp) => {
     const uid = emp.id;
+    const employeeStartDate = getEmployeeAttendanceStartDate(emp);
+    const { startDay: trackedStartDay, endDay: trackedLastDay } = getTrackedDayWindow({
+      year,
+      month,
+      dim,
+      startDate: employeeStartDate,
+    });
     const days = {};
     let P = 0;
     let A = 0;
@@ -215,7 +263,9 @@ const buildMonthlyTrackerData = async ({ year, month, search }) => {
 
       let statusCode = "-";
 
-      if (isWeekend(year, month, day)) {
+      if (trackedStartDay === 0 || day < trackedStartDay || day > trackedLastDay) {
+        statusCode = "-";
+      } else if (isWeekend(year, month, day)) {
         statusCode = "W";
       } else if (leaveInfo) {
         statusCode = "OL";
