@@ -90,22 +90,23 @@ const protect = async (req, res, next) => {
         attributes: { exclude: ["password"] },
       });
 
-    if (
-      normalizeValue(user.role) === "employee" &&
-      normalizeValue(user.approvalStatus || "approved") !== "approved"
-    ) {
-      return res.status(403).json({ message: "Your account is awaiting admin approval" });
+      if (
+        normalizeValue(user.role) === "employee" &&
+        normalizeValue(user.approvalStatus || "approved") !== "approved"
+      ) {
+        return res.status(403).json({ message: "Your account is awaiting admin approval" });
+      }
+
+      // keep backward compatibility with old Mongo _id usage
+      const u = user.toJSON();
+      u._id = u.id;
+
+      req.user = { ...user };
+      next();
     }
-
-    // keep backward compatibility with old Mongo _id usage
-    const u = user.toJSON();
-    u._id = u.id;
-
-    req.user = { ...user };
-    next();
   } catch (err) {
-    return res.status(401).json({ message: "Invalid token" });
-  }
+  return res.status(401).json({ message: "Invalid token" });
+  };
 };
 
 const authorize = (...roles) => {
