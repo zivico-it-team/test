@@ -93,6 +93,46 @@ const buildUserPolicyTotals = (user = {}) => {
   return normalizedPolicy;
 };
 
+const parseConfiguredHalfDayUsage = (value) => {
+  if (typeof value === "boolean") return value ? 0.5 : 0;
+
+  const numeric = toNumber(value, 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+
+  // Legacy storage may keep halfDay as 1 (true-like flag) or 0.5 (actual day usage).
+  if (numeric === 1 || numeric === 0.5) return 0.5;
+
+  if (numeric < 1) return numeric;
+
+  // If stored as number of half-day units, convert to day value.
+  return numeric * 0.5;
+};
+
+const buildConfiguredUsageByType = (user = {}) => {
+  const professional = toPlainObject(user?.professional, {});
+  const rawPolicySource = professional?.leaveBalance ?? professional?.leaveBalances ?? {};
+  const rawPolicy = toPlainObject(rawPolicySource, {});
+  const configuredUsage = { ...EMPTY_POLICY_TOTALS };
+
+  if (!rawPolicy || typeof rawPolicy !== "object") {
+    return configuredUsage;
+  }
+
+  for (const [rawType, rawConfig] of Object.entries(rawPolicy)) {
+    const typeKey = getLeaveTypeKey(rawType);
+    if (!typeKey) continue;
+
+    const configObject = toPlainObject(rawConfig, null);
+    const configuredUsed = configObject && typeof configObject === "object" ? configObject.used : 0;
+    const configuredHalfDay = configObject && typeof configObject === "object" ? configObject.halfDay : 0;
+    const usedDays = Math.max(0, toNumber(configuredUsed, 0)) + parseConfiguredHalfDayUsage(configuredHalfDay);
+
+    configuredUsage[typeKey] = usedDays;
+  }
+
+  return configuredUsage;
+};
+
 const getAllBalanceTypes = () => Object.keys(EMPTY_POLICY_TOTALS);
 
 // Helpers
@@ -157,6 +197,45 @@ const formatDateLabel = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const toMetaObject = (value) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  return {};
+};
+
+const markLeaveRequestNotificationAsReadForActor = async ({ actorUserId, leaveId }) => {
+  if (!actorUserId || !leaveId) return;
+
+  const candidateNotifications = await Notification.findAll({
+    where: {
+      userId: actorUserId,
+      module: "leave",
+      type: "leave_request",
+      isRead: false,
+    },
+    attributes: ["id", "meta"],
+  });
+
+  const relatedIds = candidateNotifications
+    .filter((notification) => String(toMetaObject(notification.meta).leaveId || "") === String(leaveId))
+    .map((notification) => notification.id);
+
+  if (!relatedIds.length) return;
+
+  await Notification.update(
+    {
+      isRead: true,
+      readAt: new Date(),
+    },
+    {
+      where: {
+        id: { [Op.in]: relatedIds },
+      },
+    }
+  );
+};
+
 const toLeaveJson = (l) => {
   const o = typeof l.toJSON === "function" ? l.toJSON() : l;
   const includedUser =
@@ -180,6 +259,7 @@ const applyLeave = async (req, res) => {
     const { type, fromDate, toDate, reason, isHalfDay, session } = req.body;
     const requestedType = getLeaveTypeKey(type);
     const policyTotals = buildUserPolicyTotals(req.user);
+    const configuredUsageByType = buildConfiguredUsageByType(req.user);
     const halfDayRequested = toBoolean(isHalfDay);
 
     if (!type) return res.status(400).json({ message: "type is required" });
@@ -258,7 +338,8 @@ const applyLeave = async (req, res) => {
       attributes: ["totalDays"],
     });
 
-    const used = approvedLeaves.reduce((sum, l) => sum + (l.totalDays || 0), 0);
+    const configuredUsed = Math.max(0, toNumber(configuredUsageByType[requestedType], 0));
+    const used = configuredUsed + approvedLeaves.reduce((sum, l) => sum + (l.totalDays || 0), 0);
     const available = Math.max(0, assignedTotal - used);
 
     if (totalDays > available) {
@@ -401,6 +482,7 @@ const leaveSummary = async (req, res) => {
   try {
     const userId = req.user._id;
     const policyTotals = buildUserPolicyTotals(req.user);
+    const configuredUsageByType = buildConfiguredUsageByType(req.user);
 
     const [totalApplications, approvedCount, pendingCount] = await Promise.all([
       Leave.count({ where: { userId } }),
@@ -413,7 +495,12 @@ const leaveSummary = async (req, res) => {
       attributes: ["type", "totalDays"],
     });
 
-    const usedByType = { annual: 0, casual: 0, medical: 0, unpaid: 0 };
+    const usedByType = {
+      annual: Math.max(0, toNumber(configuredUsageByType.annual, 0)),
+      casual: Math.max(0, toNumber(configuredUsageByType.casual, 0)),
+      medical: Math.max(0, toNumber(configuredUsageByType.medical, 0)),
+      unpaid: Math.max(0, toNumber(configuredUsageByType.unpaid, 0)),
+    };
     for (const l of approvedLeaves) {
       const typeKey = getLeaveTypeKey(l.type);
       if (!typeKey || !Object.prototype.hasOwnProperty.call(usedByType, typeKey)) continue;
@@ -492,6 +579,11 @@ const updateLeaveStatus = async (req, res) => {
       remark: remark || "",
       actionById: req.user._id,
       actionAt: new Date(),
+    });
+
+    await markLeaveRequestNotificationAsReadForActor({
+      actorUserId: req.user._id,
+      leaveId: leave.id,
     });
 
     const leaveTypeKey = getLeaveTypeKey(leave.type) || String(leave.type || "").trim().toLowerCase();
