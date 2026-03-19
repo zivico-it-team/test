@@ -69,6 +69,11 @@ const toPublicUser = (user) => {
 
   const obj = typeof user.toJSON === "function" ? user.toJSON() : { ...user };
   delete obj.password;
+  const normalizedRole = String(obj.role || "").trim().toLowerCase();
+  const approvalStatus =
+    normalizedRole === "employee"
+      ? String(obj.approvalStatus || "approved").trim().toLowerCase() || "approved"
+      : "approved";
   const professional = normalizeProfessional(obj.professional);
   const imagePath = normalizeStoredImageUrl(obj.profileImageUrl);
   const profileImageVersion = obj.updatedAt ? new Date(obj.updatedAt).getTime() : null;
@@ -84,6 +89,8 @@ const toPublicUser = (user) => {
     skills: toPlainArray(obj.skills, []),
     bank: toPlainObject(obj.bank, {}),
     emergencyContact: toPlainObject(obj.emergencyContact, {}),
+    approvalStatus,
+    approvedAt: obj.approvedAt || null,
     profileImageUrl: imagePath,
     profilePicture: imagePath,
     profileImageFileName: String(obj.profileImageFileName || "").trim(),

@@ -16,12 +16,22 @@ const {
   getEmployeeById,
   updateEmployee,
   deleteEmployee,
+  getPendingEmployeeAccess,
+  approveEmployeeAccess,
 
   // admin profile
   getAdminProfile,
   updateAdminProfile,
   changeAdminPassword,
 } = require("../controllers/adminController");
+
+const adminOnly = (req, res, next) => {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ message: "Admin only" });
+  }
+
+  return next();
+};
 
 /**
  * @swagger
@@ -381,6 +391,8 @@ router.delete("/manager/:id", protect, authorizeAdminOrHR, deleteManager);
  *         description: Server error
  */
 router.get("/employee", protect, authorize("admin", "manager"), getEmployees);
+router.get("/access/pending", protect, adminOnly, getPendingEmployeeAccess);
+router.patch("/access/:id/approve", protect, adminOnly, approveEmployeeAccess);
 
 /**
  * @swagger
