@@ -1,6 +1,6 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
-const { Op } = require("sequelize");
+const { Op, QueryTypes } = require("sequelize");
 const LeaderboardPerformance = require("../models/LeaderboardPerformance");
 const { sequelize } = require("../config/db");
 const Activity = require("../models/Activity");
@@ -10,6 +10,7 @@ const Upload = require("../models/Upload");
 const FileShare = require("../models/FileShare");
 const PasswordReset = require("../models/PasswordReset");
 const Lead = require("../models/Lead");
+const Notification = require("../models/Notification");
 const {
   toPublicUser,
   toPlainObject,
@@ -107,19 +108,189 @@ const handleAdminUserError = (res, err) => {
   return res.status(500).json({ message: err.message || "Server error" });
 };
 
+const handleDeleteUserError = (res, err, label) => {
+  const isForeignKeyConstraintError =
+    err?.name === "SequelizeForeignKeyConstraintError" ||
+    err?.original?.code === "ER_ROW_IS_REFERENCED_2" ||
+    err?.parent?.code === "ER_ROW_IS_REFERENCED_2";
+
+  if (isForeignKeyConstraintError) {
+    return res.status(409).json({
+      success: false,
+      message: `Unable to delete ${label}. Dependent records still exist.`,
+      code: "FK_CONSTRAINT_ERROR",
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: err?.message || `Failed to delete ${label}`,
+  });
+};
+
+const buildReferenceWhere = (id, referenceKeys = ["userId"]) => {
+  const keys = Array.isArray(referenceKeys)
+    ? referenceKeys.map((value) => String(value || "").trim()).filter(Boolean)
+    : [String(referenceKeys || "userId").trim()];
+
+  if (keys.length === 0) {
+    return {};
+  }
+
+  if (keys.length === 1) {
+    return { [keys[0]]: id };
+  }
+
+  return {
+    [Op.or]: keys.map((key) => ({ [key]: id })),
+  };
+};
+
+const runUpdateTasks = async (tasks, { id, transaction }) => {
+  for (const task of tasks) {
+    const where =
+      typeof task.where === "function"
+        ? task.where(id)
+        : buildReferenceWhere(id, task.referenceKeys);
+    const values = typeof task.values === "function" ? task.values(id) : task.values;
+    await task.model.update(values, { where, transaction });
+  }
+};
+
+const runDestroyTasks = async (tasks, { id, transaction }) => {
+  for (const task of tasks) {
+    const where =
+      typeof task.where === "function"
+        ? task.where(id)
+        : buildReferenceWhere(id, task.referenceKeys);
+    await task.model.destroy({ where, transaction });
+  }
+};
+
+const USER_REFERENCE_UPDATE_TASKS = [
+  {
+    model: Leave,
+    referenceKeys: ["actionById"],
+    values: { actionById: null },
+  },
+  {
+    model: Lead,
+    referenceKeys: ["assignedToId"],
+    values: {
+      assignedTo: "",
+      assignedToId: "",
+      assignedDate: null,
+      leadPool: "SL_EMP_UNASSIGNED",
+      wasEverAssigned: true,
+    },
+  },
+  {
+    model: Lead,
+    referenceKeys: ["followUpSetById"],
+    values: () => ({
+      followUp: "",
+      followUpSetById: "",
+      followUpSetBy: "",
+      followUpSetAt: null,
+      followUpHandled: true,
+      followUpHandledAt: new Date(),
+      followUpHandledById: "",
+    }),
+  },
+  {
+    model: Lead,
+    referenceKeys: ["followUpHandledById"],
+    values: { followUpHandledById: "" },
+  },
+];
+
+const USER_REFERENCE_DELETE_TASKS = [
+  { model: PasswordReset, referenceKeys: ["userId"] },
+  { model: Notification, referenceKeys: ["userId"] },
+  { model: LeaderboardPerformance, referenceKeys: ["employeeId"] },
+  { model: Leave, referenceKeys: ["userId"] },
+  { model: Attendance, referenceKeys: ["userId"] },
+  { model: Activity, referenceKeys: ["userId"] },
+];
+
+const FK_HANDLED_TABLES = new Set([
+  "users",
+  "password_resets",
+  "notifications",
+  "leaderboard_performances",
+  "leaves",
+  "attendances",
+  "activities",
+  "uploads",
+  "file_shares",
+]);
+
+const quoteIdentifier = (value) => `\`${String(value || "").replace(/`/g, "``")}\``;
+
+const removeUserFromScopedFileShares = async (id, transaction) => {
+  const scopedShares = await FileShare.findAll({
+    where: { scope: "users" },
+    attributes: ["id", "sharedWith"],
+    transaction,
+  });
+
+  for (const share of scopedShares) {
+    const sharedWith = Array.isArray(share.sharedWith) ? share.sharedWith : [];
+    if (!sharedWith.some((entry) => String(entry) === id)) {
+      continue;
+    }
+
+    const nextSharedWith = sharedWith.filter((entry) => String(entry) !== id);
+    await share.update({ sharedWith: nextSharedWith }, { transaction });
+  }
+};
+
+const deleteUnhandledUserForeignKeyRows = async (id, transaction) => {
+  let foreignKeys = [];
+  try {
+    foreignKeys = await sequelize.query(
+      `
+        SELECT
+          TABLE_NAME AS tableName,
+          COLUMN_NAME AS columnName
+        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND REFERENCED_TABLE_NAME = 'users'
+          AND REFERENCED_COLUMN_NAME = 'id'
+      `,
+      { type: QueryTypes.SELECT, transaction }
+    );
+  } catch (error) {
+    // Keep deletion flow functional even if metadata visibility is restricted.
+    console.warn("Could not inspect INFORMATION_SCHEMA for dynamic user cleanup:", error.message);
+    return;
+  }
+
+  for (const reference of foreignKeys) {
+    const tableName = String(reference?.tableName || "").trim();
+    const columnName = String(reference?.columnName || "").trim();
+    if (!tableName || !columnName) {
+      continue;
+    }
+
+    if (FK_HANDLED_TABLES.has(tableName.toLowerCase())) {
+      continue;
+    }
+
+    const sql = `DELETE FROM ${quoteIdentifier(tableName)} WHERE ${quoteIdentifier(columnName)} = :id`;
+    await sequelize.query(sql, {
+      replacements: { id },
+      transaction,
+    });
+  }
+};
+
 const purgeUserRecords = async (userId, transaction) => {
   const id = String(userId || "").trim();
   if (!id) return;
 
-  await PasswordReset.destroy({ where: { userId: id }, transaction });
-  await LeaderboardPerformance.destroy({ where: { employeeId: id }, transaction });
-
-  // Remove leave action reference before deleting manager/admin actors.
-  await Leave.update({ actionById: null }, { where: { actionById: id }, transaction });
-  await Leave.destroy({ where: { userId: id }, transaction });
-
-  await Attendance.destroy({ where: { userId: id }, transaction });
-  await Activity.destroy({ where: { userId: id }, transaction });
+  await runUpdateTasks(USER_REFERENCE_UPDATE_TASKS, { id, transaction });
+  await runDestroyTasks(USER_REFERENCE_DELETE_TASKS, { id, transaction });
 
   const userUploads = await Upload.findAll({
     where: { userId: id },
@@ -138,49 +309,29 @@ const purgeUserRecords = async (userId, transaction) => {
   await FileShare.destroy({ where: { sharedById: id }, transaction });
 
   // Remove user from targeted share lists.
-  const scopedShares = await FileShare.findAll({
-    where: { scope: "users" },
-    attributes: ["id", "sharedWith"],
-    transaction,
-  });
-  for (const share of scopedShares) {
-    const sharedWith = Array.isArray(share.sharedWith) ? share.sharedWith : [];
-    if (!sharedWith.some((entry) => String(entry) === id)) continue;
-    const nextSharedWith = sharedWith.filter((entry) => String(entry) !== id);
-    await share.update({ sharedWith: nextSharedWith }, { transaction });
-  }
+  await removeUserFromScopedFileShares(id, transaction);
 
   await Upload.destroy({ where: { userId: id }, transaction });
 
-  // Leads are business records, so detach user references instead of deleting leads.
-  await Lead.update(
-    {
-      assignedTo: "",
-      assignedToId: "",
-      assignedDate: null,
-      leadPool: "SL_EMP_UNASSIGNED",
-      wasEverAssigned: true,
-    },
-    { where: { assignedToId: id }, transaction }
-  );
+  // Final safety net: delete any FK-linked rows in additional tables not yet mapped in code.
+  await deleteUnhandledUserForeignKeyRows(id, transaction);
+};
 
-  await Lead.update(
-    {
-      followUp: "",
-      followUpSetById: "",
-      followUpSetBy: "",
-      followUpSetAt: null,
-      followUpHandled: true,
-      followUpHandledAt: new Date(),
-      followUpHandledById: "",
-    },
-    { where: { followUpSetById: id }, transaction }
-  );
+const deleteUserWithDependencies = async ({ id, role }) => {
+  return sequelize.transaction(async (transaction) => {
+    const user = await User.findOne({
+      where: { id, role },
+      transaction,
+    });
 
-  await Lead.update(
-    { followUpHandledById: "" },
-    { where: { followUpHandledById: id }, transaction }
-  );
+    if (!user) {
+      return { deleted: false };
+    }
+
+    await purgeUserRecords(id, transaction);
+    await user.destroy({ transaction });
+    return { deleted: true };
+  });
 };
 
 // Admin → Add Manager
@@ -398,20 +549,27 @@ const updateManager = async (req, res) => {
 // DELETE manager by id (Admin only)
 const deleteManager = async (req, res) => {
   try {
-    const id = req.params.id;
-
-    if (req.user && String(req.user._id) === String(id)) {
-      return res.status(400).json({ message: "You can't delete your own account" });
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Manager id is required" });
     }
 
-    const deleted = await sequelize.transaction(async (transaction) => {
-      await purgeUserRecords(id, transaction);
-      return User.destroy({ where: { id, role: "manager" }, transaction });
+    if (req.user && String(req.user._id) === String(id)) {
+      return res.status(400).json({ success: false, message: "You can't delete your own account" });
+    }
+
+    const result = await deleteUserWithDependencies({ id, role: "manager" });
+    if (!result.deleted) {
+      return res.status(404).json({ success: false, message: "Manager not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Manager deleted successfully",
+      data: { id },
     });
-    if (!deleted) return res.status(404).json({ message: "Manager not found" });
-    res.json({ message: "Manager deleted successfully" });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return handleDeleteUserError(res, err, "manager");
   }
 };
 
@@ -606,21 +764,27 @@ const approveEmployeeAccess = async (req, res) => {
 // DELETE employee by id (Admin/Manager)
 const deleteEmployee = async (req, res) => {
   try {
-    const id = req.params.id;
-
-    if (req.user && String(req.user._id) === String(id)) {
-      return res.status(400).json({ message: "You can't delete your own account" });
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Employee id is required" });
     }
 
-    const deleted = await sequelize.transaction(async (transaction) => {
-      await purgeUserRecords(id, transaction);
-      return User.destroy({ where: { id, role: "employee" }, transaction });
-    });
-    if (!deleted) return res.status(404).json({ message: "Employee not found" });
+    if (req.user && String(req.user._id) === String(id)) {
+      return res.status(400).json({ success: false, message: "You can't delete your own account" });
+    }
 
-    res.json({ message: "Employee deleted successfully" });
+    const result = await deleteUserWithDependencies({ id, role: "employee" });
+    if (!result.deleted) {
+      return res.status(404).json({ success: false, message: "Employee not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Employee deleted successfully",
+      data: { id },
+    });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return handleDeleteUserError(res, err, "employee");
   }
 };
 
