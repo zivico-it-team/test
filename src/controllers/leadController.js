@@ -32,7 +32,10 @@ const mapLead = (lead) => {
 const ASSIGNED_LEAD_POOL = "SL_EMP_ASSIGNED";
 const UNASSIGNED_LEAD_POOL = "SL_EMP_UNASSIGNED";
 
-const normalizeLeadPool = (leadPool) => String(leadPool || "").trim().toUpperCase();
+const normalizeLeadPool = (leadPool) =>
+  String(leadPool || "")
+    .trim()
+    .toUpperCase();
 
 const hasAssignedToValue = (assignedTo) => {
   const normalized = String(assignedTo || "").trim();
@@ -40,7 +43,9 @@ const hasAssignedToValue = (assignedTo) => {
 };
 
 const isAssignedState = ({ assignedTo, assignedToId, leadPool }) => {
-  const hasCurrentAssignment = hasAssignedToValue(assignedTo) || Boolean(String(assignedToId || "").trim());
+  const hasCurrentAssignment =
+    hasAssignedToValue(assignedTo) ||
+    Boolean(String(assignedToId || "").trim());
   if (hasCurrentAssignment) {
     return true;
   }
@@ -65,7 +70,9 @@ const assignmentScopeForEmployee = (user) => {
 
 const getBaseWhere = (req) => {
   if (req.user?.role === "employee") {
-  const scope = String(req.query?.scope || "").trim().toLowerCase();
+    const scope = String(req.query?.scope || "")
+      .trim()
+      .toLowerCase();
     if (scope === "shared") {
       return {};
     }
@@ -100,26 +107,34 @@ const MASTER_DATA_FIELD_LABELS = {
   assignedToId: "Assignee ID",
   assignedDate: "Assigned Date",
   followUp: "Upcoming Followup",
-  complianceType: "Compliance Type",
+  ComplaintsType: "Complaints Type",
 };
 
 const MASTER_DATA_REQUEST_NOTIFICATION_TYPE = "lead_master_data_request";
 const MASTER_DATA_RESULT_NOTIFICATION_TYPE = "lead_master_data_result";
 
 const isLeadApprovalReviewer = (user) => {
-  const role = String(user?.role || "").trim().toLowerCase();
+  const role = String(user?.role || "")
+    .trim()
+    .toLowerCase();
   return role === "admin" || role === "manager";
 };
 
 const mapMasterDataRequest = (request) => {
-  const item = typeof request?.toJSON === "function" ? request.toJSON() : request;
+  const item =
+    typeof request?.toJSON === "function" ? request.toJSON() : request;
   return {
     ...item,
     _id: item?.id,
     changedFields: Array.isArray(item?.changedFields)
-      ? item.changedFields.map((field) => MASTER_DATA_FIELD_LABELS[field] || field)
+      ? item.changedFields.map(
+          (field) => MASTER_DATA_FIELD_LABELS[field] || field,
+        )
       : [],
-    requestedData: item?.requestedData && typeof item.requestedData === "object" ? item.requestedData : {},
+    requestedData:
+      item?.requestedData && typeof item.requestedData === "object"
+        ? item.requestedData
+        : {},
     requestedBy: {
       id: item?.requestedByUserId || "",
       name: item?.requestedByName || "",
@@ -137,9 +152,14 @@ const mapMasterDataRequest = (request) => {
 
 const mapTimeline = (entry, actorProfile = null) => {
   const obj = typeof entry?.toJSON === "function" ? entry.toJSON() : entry;
-  const actorObj = actorProfile && typeof actorProfile?.toJSON === "function" ? actorProfile.toJSON() : actorProfile;
+  const actorObj =
+    actorProfile && typeof actorProfile?.toJSON === "function"
+      ? actorProfile.toJSON()
+      : actorProfile;
   const actorImage = normalizeStoredImageUrl(actorObj?.profileImageUrl || "");
-  const actorImageVersion = actorObj?.updatedAt ? new Date(actorObj.updatedAt).getTime() : null;
+  const actorImageVersion = actorObj?.updatedAt
+    ? new Date(actorObj.updatedAt).getTime()
+    : null;
 
   return {
     id: obj?.id,
@@ -153,15 +173,18 @@ const mapTimeline = (entry, actorProfile = null) => {
   };
 };
 
-const normalizeActorValue = (value) => String(value || "").trim().toLowerCase();
+const normalizeActorValue = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
 
 const buildActorProfileLookup = async (timelineItems = []) => {
   const actorValues = Array.from(
     new Set(
       timelineItems
         .map((item) => String(item?.changedBy || "").trim())
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
 
   if (actorValues.length === 0) {
@@ -176,7 +199,14 @@ const buildActorProfileLookup = async (timelineItems = []) => {
         { email: { [Op.in]: actorValues } },
       ],
     },
-    attributes: ["id", "name", "userName", "email", "profileImageUrl", "updatedAt"],
+    attributes: [
+      "id",
+      "name",
+      "userName",
+      "email",
+      "profileImageUrl",
+      "updatedAt",
+    ],
   });
 
   const lookup = new Map();
@@ -201,7 +231,11 @@ const ensureLeadTimelineReady = async () => {
 };
 
 const getActorName = (req) => {
-  return String(req.user?.name || req.user?.userName || req.user?.email || "System").trim() || "System";
+  return (
+    String(
+      req.user?.name || req.user?.userName || req.user?.email || "System",
+    ).trim() || "System"
+  );
 };
 
 const normalizeCompareValue = (field, value) => {
@@ -243,30 +277,70 @@ const addLeadTimeline = async ({ req, leadId, action, details }) => {
   return mapTimeline(timeline, req?.user || null);
 };
 
-const buildLeadMasterDataNextValues = ({ lead, payload = {}, actorId = "", actorName = "System" }) => {
-  const assignedTo = payload?.assignedTo !== undefined ? String(payload.assignedTo || "").trim() : lead.assignedTo;
-  const assignedToId = payload?.assignedToId !== undefined ? String(payload.assignedToId || "").trim() : lead.assignedToId;
-  const explicitLeadPool = payload?.leadPool !== undefined ? String(payload.leadPool || "").trim() : "";
+const buildLeadMasterDataNextValues = ({
+  lead,
+  payload = {},
+  actorId = "",
+  actorName = "System",
+}) => {
+  const assignedTo =
+    payload?.assignedTo !== undefined
+      ? String(payload.assignedTo || "").trim()
+      : lead.assignedTo;
+  const assignedToId =
+    payload?.assignedToId !== undefined
+      ? String(payload.assignedToId || "").trim()
+      : lead.assignedToId;
+  const explicitLeadPool =
+    payload?.leadPool !== undefined
+      ? String(payload.leadPool || "").trim()
+      : "";
   const nextLeadPool =
-    explicitLeadPool || (hasAssignedToValue(assignedTo) || Boolean(assignedToId) ? ASSIGNED_LEAD_POOL : UNASSIGNED_LEAD_POOL);
-  const isAssigned = isAssignedState({ assignedTo, assignedToId, leadPool: nextLeadPool });
+    explicitLeadPool ||
+    (hasAssignedToValue(assignedTo) || Boolean(assignedToId)
+      ? ASSIGNED_LEAD_POOL
+      : UNASSIGNED_LEAD_POOL);
+  const isAssigned = isAssignedState({
+    assignedTo,
+    assignedToId,
+    leadPool: nextLeadPool,
+  });
   const nextValues = {
-    name: payload?.name !== undefined ? String(payload.name || "").trim() : lead.name,
-    email: payload?.email !== undefined ? String(payload.email || "").trim() : lead.email,
+    name:
+      payload?.name !== undefined
+        ? String(payload.name || "").trim()
+        : lead.name,
+    email:
+      payload?.email !== undefined
+        ? String(payload.email || "").trim()
+        : lead.email,
     phone:
       payload?.phone !== undefined || payload?.phoneNumber !== undefined
         ? String(payload.phone || payload.phoneNumber || "").trim()
         : lead.phone,
-    fax: payload?.fax !== undefined ? String(payload.fax || "").trim() : lead.fax,
-    gender: payload?.gender !== undefined ? String(payload.gender || "").trim() : lead.gender,
+    fax:
+      payload?.fax !== undefined ? String(payload.fax || "").trim() : lead.fax,
+    gender:
+      payload?.gender !== undefined
+        ? String(payload.gender || "").trim()
+        : lead.gender,
     dateOfBirth:
-      payload?.dateOfBirth !== undefined ? String(payload.dateOfBirth || "").trim() : lead.dateOfBirth,
-    country: payload?.country !== undefined ? String(payload.country || "").trim() : lead.country,
+      payload?.dateOfBirth !== undefined
+        ? String(payload.dateOfBirth || "").trim()
+        : lead.dateOfBirth,
+    country:
+      payload?.country !== undefined
+        ? String(payload.country || "").trim()
+        : lead.country,
     preferredLanguage:
-      payload?.language !== undefined || payload?.preferredLanguage !== undefined
+      payload?.language !== undefined ||
+      payload?.preferredLanguage !== undefined
         ? String(payload.language || payload.preferredLanguage || "").trim()
         : lead.preferredLanguage,
-    campaign: payload?.campaign !== undefined ? String(payload.campaign || "").trim() : lead.campaign,
+    campaign:
+      payload?.campaign !== undefined
+        ? String(payload.campaign || "").trim()
+        : lead.campaign,
     leadPool: nextLeadPool,
     assignedTo,
     assignedToId,
@@ -279,21 +353,31 @@ const buildLeadMasterDataNextValues = ({ lead, payload = {}, actorId = "", actor
           ? lead.assignedDate || new Date()
           : null,
     wasEverAssigned: Boolean(lead.wasEverAssigned || isAssigned),
-    followUp: payload?.followUp !== undefined ? String(payload.followUp || "").trim() : lead.followUp,
-    complianceType:
-      payload?.complianceType !== undefined
-        ? String(payload.complianceType || "").trim()
-        : lead.complianceType,
+    followUp:
+      payload?.followUp !== undefined
+        ? String(payload.followUp || "").trim()
+        : lead.followUp,
+    ComplaintsType:
+      payload?.ComplaintsType !== undefined
+        ? String(payload.ComplaintsType || "").trim()
+        : lead.ComplaintsType,
   };
 
-  const previousFollowUpValue = normalizeCompareValue("followUp", lead.followUp);
-  const nextFollowUpValue = normalizeCompareValue("followUp", nextValues.followUp);
+  const previousFollowUpValue = normalizeCompareValue(
+    "followUp",
+    lead.followUp,
+  );
+  const nextFollowUpValue = normalizeCompareValue(
+    "followUp",
+    nextValues.followUp,
+  );
   const followUpChanged = previousFollowUpValue !== nextFollowUpValue;
 
   if (followUpChanged) {
     if (nextFollowUpValue) {
       nextValues.followUpSetById = String(actorId || "").trim();
-      nextValues.followUpSetBy = String(actorName || "System").trim() || "System";
+      nextValues.followUpSetBy =
+        String(actorName || "System").trim() || "System";
       nextValues.followUpSetAt = new Date();
     } else {
       nextValues.followUpSetById = "";
@@ -307,7 +391,9 @@ const buildLeadMasterDataNextValues = ({ lead, payload = {}, actorId = "", actor
   }
 
   const changedFields = Object.keys(MASTER_DATA_FIELD_LABELS).filter(
-    (field) => normalizeCompareValue(field, lead[field]) !== normalizeCompareValue(field, nextValues[field])
+    (field) =>
+      normalizeCompareValue(field, lead[field]) !==
+      normalizeCompareValue(field, nextValues[field]),
   );
 
   return { nextValues, changedFields };
@@ -332,7 +418,9 @@ const applyLeadMasterDataUpdate = async ({
 
   let timelineEntry = null;
   if (changedFields.length > 0) {
-    const labels = changedFields.map((field) => MASTER_DATA_FIELD_LABELS[field]);
+    const labels = changedFields.map(
+      (field) => MASTER_DATA_FIELD_LABELS[field],
+    );
     const timelineRecord = await addLeadTimelineEntry({
       leadId: lead.id,
       action: timelineAction,
@@ -345,7 +433,12 @@ const applyLeadMasterDataUpdate = async ({
   return { lead, timelineEntry, changedFields, nextValues };
 };
 
-const createLeadMasterDataNotifications = async ({ requester, lead, changedFields, requestId }) => {
+const createLeadMasterDataNotifications = async ({
+  requester,
+  lead,
+  changedFields,
+  requestId,
+}) => {
   const recipients = await User.findAll({
     where: {
       role: {
@@ -356,7 +449,10 @@ const createLeadMasterDataNotifications = async ({ requester, lead, changedField
   });
 
   const recipientPayload = recipients
-    .filter((recipient) => String(recipient.id) !== String(requester?._id || requester?.id || ""))
+    .filter(
+      (recipient) =>
+        String(recipient.id) !== String(requester?._id || requester?.id || ""),
+    )
     .map((recipient) => ({
       userId: recipient.id,
       title: "Lead Update Approval Needed",
@@ -417,7 +513,9 @@ const listLeads = async (req, res) => {
       total: count,
     });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to load leads" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to load leads" });
   }
 };
 
@@ -428,33 +526,49 @@ const createLead = async (req, res) => {
     const phone = String(req.body?.phone || req.body?.phoneNumber || "").trim();
 
     if (!name || !email || !phone) {
-      return res.status(400).json({ message: "name, email and phone are required" });
+      return res
+        .status(400)
+        .json({ message: "name, email and phone are required" });
     }
 
     const assignedTo = String(req.body?.assignedTo || "").trim();
     const assignedToId = String(req.body?.assignedToId || "").trim();
     const requestedLeadPool = String(req.body?.leadPool || "").trim();
-    const isAssigned = isAssignedState({ assignedTo, assignedToId, leadPool: requestedLeadPool });
+    const isAssigned = isAssignedState({
+      assignedTo,
+      assignedToId,
+      leadPool: requestedLeadPool,
+    });
 
     const lead = await Lead.create({
       name,
       email,
       phone,
       country: String(req.body?.country || "").trim(),
-      preferredLanguage: String(req.body?.language || req.body?.preferredLanguage || "").trim(),
+      preferredLanguage: String(
+        req.body?.language || req.body?.preferredLanguage || "",
+      ).trim(),
       assignedTo,
       assignedToId,
       followUp: String(req.body?.followUp || "").trim(),
       stage: String(req.body?.stage || "New").trim(),
       tag: String(req.body?.tag || "New Lead").trim(),
       comment: String(req.body?.comment || "").trim(),
-      assignedDate: req.body?.assignedDate ? new Date(req.body.assignedDate) : isAssigned ? new Date() : null,
+      assignedDate: req.body?.assignedDate
+        ? new Date(req.body.assignedDate)
+        : isAssigned
+          ? new Date()
+          : null,
       wasEverAssigned: isAssigned,
-      complianceType: String(req.body?.complianceType || "Standard").trim(),
-      uploadedBy: String(req.body?.uploadedBy || req.user?.name || req.user?.email || "System").trim(),
+      ComplaintsType: String(req.body?.ComplaintsType || "Standard").trim(),
+      uploadedBy: String(
+        req.body?.uploadedBy || req.user?.name || req.user?.email || "System",
+      ).trim(),
       campaign: String(req.body?.campaign || "General Campaign").trim(),
       source: String(req.body?.source || "manual").trim(),
-      leadPool: requestedLeadPool || (isAssigned ? ASSIGNED_LEAD_POOL : UNASSIGNED_LEAD_POOL),
+      leadPool:
+        requestedLeadPool ||
+        (isAssigned ? ASSIGNED_LEAD_POOL : UNASSIGNED_LEAD_POOL),
       fax: String(req.body?.fax || "").trim(),
       gender: String(req.body?.gender || "").trim(),
       dateOfBirth: String(req.body?.dateOfBirth || "").trim(),
@@ -462,7 +576,9 @@ const createLead = async (req, res) => {
 
     return res.status(201).json({ lead: mapLead(lead) });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to create lead" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to create lead" });
   }
 };
 
@@ -489,7 +605,9 @@ const toggleBookmark = async (req, res) => {
 
     return res.json(mapLead(lead));
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to update bookmark" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to update bookmark" });
   }
 };
 
@@ -503,7 +621,9 @@ const toggleArchive = async (req, res) => {
 
     return res.json(mapLead(lead));
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to update archive state" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to update archive state" });
   }
 };
 
@@ -511,31 +631,67 @@ const updateMasterData = async (req, res) => {
   try {
     const lead = await ensureLead(req.params.id, res);
     if (!lead) return;
-    
-    const assignedTo = req.body?.assignedTo !== undefined ? String(req.body.assignedTo || "").trim() : lead.assignedTo;
+
+    const assignedTo =
+      req.body?.assignedTo !== undefined
+        ? String(req.body.assignedTo || "").trim()
+        : lead.assignedTo;
     const assignedToId =
-      req.body?.assignedToId !== undefined ? String(req.body.assignedToId || "").trim() : lead.assignedToId;
-    const explicitLeadPool = req.body?.leadPool !== undefined ? String(req.body.leadPool || "").trim() : "";
+      req.body?.assignedToId !== undefined
+        ? String(req.body.assignedToId || "").trim()
+        : lead.assignedToId;
+    const explicitLeadPool =
+      req.body?.leadPool !== undefined
+        ? String(req.body.leadPool || "").trim()
+        : "";
     const nextLeadPool =
-      explicitLeadPool || (hasAssignedToValue(assignedTo) || Boolean(assignedToId) ? ASSIGNED_LEAD_POOL : UNASSIGNED_LEAD_POOL);
-    const isAssigned = isAssignedState({ assignedTo, assignedToId, leadPool: nextLeadPool });
+      explicitLeadPool ||
+      (hasAssignedToValue(assignedTo) || Boolean(assignedToId)
+        ? ASSIGNED_LEAD_POOL
+        : UNASSIGNED_LEAD_POOL);
+    const isAssigned = isAssignedState({
+      assignedTo,
+      assignedToId,
+      leadPool: nextLeadPool,
+    });
     const nextValues = {
-      name: req.body?.name !== undefined ? String(req.body.name || "").trim() : lead.name,
-      email: req.body?.email !== undefined ? String(req.body.email || "").trim() : lead.email,
+      name:
+        req.body?.name !== undefined
+          ? String(req.body.name || "").trim()
+          : lead.name,
+      email:
+        req.body?.email !== undefined
+          ? String(req.body.email || "").trim()
+          : lead.email,
       phone:
         req.body?.phone !== undefined || req.body?.phoneNumber !== undefined
           ? String(req.body.phone || req.body.phoneNumber || "").trim()
           : lead.phone,
-      fax: req.body?.fax !== undefined ? String(req.body.fax || "").trim() : lead.fax,
-      gender: req.body?.gender !== undefined ? String(req.body.gender || "").trim() : lead.gender,
+      fax:
+        req.body?.fax !== undefined
+          ? String(req.body.fax || "").trim()
+          : lead.fax,
+      gender:
+        req.body?.gender !== undefined
+          ? String(req.body.gender || "").trim()
+          : lead.gender,
       dateOfBirth:
-        req.body?.dateOfBirth !== undefined ? String(req.body.dateOfBirth || "").trim() : lead.dateOfBirth,
-      country: req.body?.country !== undefined ? String(req.body.country || "").trim() : lead.country,
+        req.body?.dateOfBirth !== undefined
+          ? String(req.body.dateOfBirth || "").trim()
+          : lead.dateOfBirth,
+      country:
+        req.body?.country !== undefined
+          ? String(req.body.country || "").trim()
+          : lead.country,
       preferredLanguage:
-        req.body?.language !== undefined || req.body?.preferredLanguage !== undefined
+        req.body?.language !== undefined ||
+        req.body?.preferredLanguage !== undefined
           ? String(req.body.language || req.body.preferredLanguage || "").trim()
           : lead.preferredLanguage,
-      campaign: req.body?.campaign !== undefined ? String(req.body.campaign || "").trim() : lead.campaign,
+      campaign:
+        req.body?.campaign !== undefined
+          ? String(req.body.campaign || "").trim()
+          : lead.campaign,
       leadPool: nextLeadPool,
       assignedTo,
       assignedToId,
@@ -548,15 +704,24 @@ const updateMasterData = async (req, res) => {
             ? lead.assignedDate || new Date()
             : null,
       wasEverAssigned: Boolean(lead.wasEverAssigned || isAssigned),
-      followUp: req.body?.followUp !== undefined ? String(req.body.followUp || "").trim() : lead.followUp,
-      complianceType:
-        req.body?.complianceType !== undefined
-          ? String(req.body.complianceType || "").trim()
-          : lead.complianceType,
+      followUp:
+        req.body?.followUp !== undefined
+          ? String(req.body.followUp || "").trim()
+          : lead.followUp,
+      ComplaintsType:
+        req.body?.ComplaintsType !== undefined
+          ? String(req.body.ComplaintsType || "").trim()
+          : lead.ComplaintsType,
     };
 
-    const previousFollowUpValue = normalizeCompareValue("followUp", lead.followUp);
-    const nextFollowUpValue = normalizeCompareValue("followUp", nextValues.followUp);
+    const previousFollowUpValue = normalizeCompareValue(
+      "followUp",
+      lead.followUp,
+    );
+    const nextFollowUpValue = normalizeCompareValue(
+      "followUp",
+      nextValues.followUp,
+    );
     const followUpChanged = previousFollowUpValue !== nextFollowUpValue;
 
     if (followUpChanged) {
@@ -579,14 +744,17 @@ const updateMasterData = async (req, res) => {
 
     const changedFields = Object.keys(MASTER_DATA_FIELD_LABELS).filter(
       (field) =>
-        normalizeCompareValue(field, lead[field]) !== normalizeCompareValue(field, nextValues[field])
+        normalizeCompareValue(field, lead[field]) !==
+        normalizeCompareValue(field, nextValues[field]),
     );
 
     await lead.update(nextValues);
 
     let timelineEntry = null;
     if (changedFields.length > 0) {
-      const labels = changedFields.map((field) => MASTER_DATA_FIELD_LABELS[field]);
+      const labels = changedFields.map(
+        (field) => MASTER_DATA_FIELD_LABELS[field],
+      );
       timelineEntry = await addLeadTimeline({
         req,
         leadId: lead.id,
@@ -597,7 +765,9 @@ const updateMasterData = async (req, res) => {
 
     return res.json({ lead: mapLead(lead), timeline: timelineEntry });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to update lead master data" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to update lead master data" });
   }
 };
 
@@ -623,7 +793,9 @@ const updateTag = async (req, res) => {
 
     return res.json({ lead: mapLead(lead), timeline: timelineEntry });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to update lead tag" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to update lead tag" });
   }
 };
 
@@ -649,7 +821,9 @@ const updateStage = async (req, res) => {
 
     return res.json({ lead: mapLead(lead), timeline: timelineEntry });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to update lead stage" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to update lead stage" });
   }
 };
 
@@ -671,12 +845,14 @@ const listTimeline = async (req, res) => {
 
     const actorLookup = await buildActorProfileLookup(items);
     const mappedItems = items.map((item) =>
-      mapTimeline(item, actorLookup.get(normalizeActorValue(item?.changedBy)))
+      mapTimeline(item, actorLookup.get(normalizeActorValue(item?.changedBy))),
     );
 
     return res.json({ items: mappedItems });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to load lead timeline" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to load lead timeline" });
   }
 };
 
@@ -701,9 +877,13 @@ const addComment = async (req, res) => {
     lead.comment = comment;
     await lead.save();
 
-    return res.status(201).json({ comment: timelineEntry, lead: mapLead(lead) });
+    return res
+      .status(201)
+      .json({ comment: timelineEntry, lead: mapLead(lead) });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to add comment" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to add comment" });
   }
 };
 
@@ -756,7 +936,10 @@ const listDueReminders = async (req, res) => {
         };
       })
       .filter(Boolean)
-      .sort((a, b) => new Date(a.followUpISO).getTime() - new Date(b.followUpISO).getTime());
+      .sort(
+        (a, b) =>
+          new Date(a.followUpISO).getTime() - new Date(b.followUpISO).getTime(),
+      );
 
     if (expiredLeadIds.length > 0) {
       await Lead.update(
@@ -771,13 +954,15 @@ const listDueReminders = async (req, res) => {
         },
         {
           where: { id: { [Op.in]: expiredLeadIds } },
-        }
+        },
       );
     }
 
     return res.json({ items });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to load due reminders" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to load due reminders" });
   }
 };
 
@@ -792,11 +977,18 @@ const markReminderHandled = async (req, res) => {
     }
 
     if (String(lead.followUpSetById || "") !== userId) {
-      return res.status(403).json({ message: "You can only handle reminders you created" });
+      return res
+        .status(403)
+        .json({ message: "You can only handle reminders you created" });
     }
 
-    if (!String(lead.followUp || "").trim() || String(lead.followUp).trim() === "N/A") {
-      return res.status(400).json({ message: "No active reminder set for this lead" });
+    if (
+      !String(lead.followUp || "").trim() ||
+      String(lead.followUp).trim() === "N/A"
+    ) {
+      return res
+        .status(400)
+        .json({ message: "No active reminder set for this lead" });
     }
 
     // Viewing from reminder popup is treated as completing that reminder.
@@ -811,7 +1003,9 @@ const markReminderHandled = async (req, res) => {
 
     return res.json({ lead: mapLead(lead) });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to mark reminder handled" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to mark reminder handled" });
   }
 };
 
@@ -846,7 +1040,9 @@ const deleteLead = async (req, res) => {
         // ignore rollback errors and return original failure
       }
     }
-    return res.status(500).json({ message: err.message || "Failed to delete lead" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to delete lead" });
   }
 };
 
@@ -869,7 +1065,9 @@ const getAssignEmployees = async (_req, res) => {
       }),
     });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to load employees" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to load employees" });
   }
 };
 
@@ -889,7 +1087,11 @@ const hasAssignedToIdWhere = {
 };
 
 const isAssignedWhere = {
-  [Op.or]: [{ leadPool: ASSIGNED_LEAD_POOL }, hasAssignedToWhere, hasAssignedToIdWhere],
+  [Op.or]: [
+    { leadPool: ASSIGNED_LEAD_POOL },
+    hasAssignedToWhere,
+    hasAssignedToIdWhere,
+  ],
 };
 
 const isUnassignedWhere = {
@@ -901,13 +1103,14 @@ const isUnassignedWhere = {
         {
           [Op.and]: [
             {
-              [Op.or]: [
-                { leadPool: null },
-                { leadPool: "" },
-              ],
+              [Op.or]: [{ leadPool: null }, { leadPool: "" }],
             },
             {
-              [Op.or]: [{ assignedTo: null }, { assignedTo: "" }, { assignedTo: "Unassigned" }],
+              [Op.or]: [
+                { assignedTo: null },
+                { assignedTo: "" },
+                { assignedTo: "Unassigned" },
+              ],
             },
             {
               [Op.or]: [{ assignedToId: null }, { assignedToId: "" }],
@@ -929,7 +1132,9 @@ const getAssignStats = async (_req, res) => {
 
     return res.json({ total, assigned, unassigned });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to load assign stats" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to load assign stats" });
   }
 };
 
@@ -937,7 +1142,9 @@ const getAssignLeads = async (req, res) => {
   try {
     const page = clamp(toInt(req.query.page, 1), 1, 100000);
     const limit = clamp(toInt(req.query.limit, 10), 1, 1000);
-    const filter = String(req.query.filter || "all").trim().toLowerCase();
+    const filter = String(req.query.filter || "all")
+      .trim()
+      .toLowerCase();
     const search = String(req.query.search || "").trim();
 
     let where = {};
@@ -952,7 +1159,11 @@ const getAssignLeads = async (req, res) => {
           { tag: { [Op.in]: ["New", "New Lead"] } },
         ],
       });
-    } else if (filter === "sale_done" || filter === "sale done" || filter === "saledone") {
+    } else if (
+      filter === "sale_done" ||
+      filter === "sale done" ||
+      filter === "saledone"
+    ) {
       where = mergeWhere(where, {
         [Op.or]: [
           { stage: { [Op.in]: ["Converted", "Sale Done"] } },
@@ -988,7 +1199,9 @@ const getAssignLeads = async (req, res) => {
       total: count,
     });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to load assign leads" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to load assign leads" });
   }
 };
 
@@ -996,10 +1209,14 @@ const assignLeads = async (req, res) => {
   try {
     const employeeName = String(req.body?.employeeName || "").trim();
     const employeeId = String(req.body?.employeeId || "").trim();
-    const leadIds = Array.isArray(req.body?.leadIds) ? req.body.leadIds.filter(Boolean) : [];
+    const leadIds = Array.isArray(req.body?.leadIds)
+      ? req.body.leadIds.filter(Boolean)
+      : [];
 
     if (!employeeName || leadIds.length === 0) {
-      return res.status(400).json({ message: "employeeName and leadIds are required" });
+      return res
+        .status(400)
+        .json({ message: "employeeName and leadIds are required" });
     }
 
     const [affected] = await Lead.update(
@@ -1012,18 +1229,25 @@ const assignLeads = async (req, res) => {
       },
       {
         where: { id: { [Op.in]: leadIds } },
-      }
+      },
     );
 
-    return res.json({ message: "Leads assigned successfully", updated: affected });
+    return res.json({
+      message: "Leads assigned successfully",
+      updated: affected,
+    });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to assign leads" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to assign leads" });
   }
 };
 
 const unassignLeads = async (req, res) => {
   try {
-    const leadIds = Array.isArray(req.body?.leadIds) ? req.body.leadIds.filter(Boolean) : [];
+    const leadIds = Array.isArray(req.body?.leadIds)
+      ? req.body.leadIds.filter(Boolean)
+      : [];
     if (leadIds.length === 0) {
       return res.status(400).json({ message: "leadIds are required" });
     }
@@ -1038,12 +1262,17 @@ const unassignLeads = async (req, res) => {
       },
       {
         where: { id: { [Op.in]: leadIds } },
-      }
+      },
     );
 
-    return res.json({ message: "Leads unassigned successfully", updated: affected });
+    return res.json({
+      message: "Leads unassigned successfully",
+      updated: affected,
+    });
   } catch (err) {
-    return res.status(500).json({ message: err.message || "Failed to unassign leads" });
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to unassign leads" });
   }
 };
 
