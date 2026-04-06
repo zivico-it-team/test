@@ -234,6 +234,7 @@ const applyLeave = async (req, res) => {
     const requestedType = getLeaveTypeKey(type);
     const policyTotals = buildUserPolicyTotals(actorUser);
     const halfDayRequested = toBoolean(isHalfDay);
+    const isUnpaidLeave = requestedType === "unpaid";
 
     if (!type) return res.status(400).json({ message: "type is required" });
     if (!requestedType) return res.status(400).json({ message: "Invalid leave type" });
@@ -270,19 +271,21 @@ const applyLeave = async (req, res) => {
 
     const totalDays = halfDayRequested ? 0.5 : calcDaysInclusive(from, to);
 
-    const existingPendingSameTypeLeave = await Leave.findOne({
-      where: {
-        userId,
-        type: requestedType,
-        status: "pending",
-      },
-      attributes: ["id"],
-    });
-
-    if (existingPendingSameTypeLeave) {
-      return res.status(400).json({
-        message: `You already have a pending ${toLeaveLabel(requestedType).toLowerCase()} leave request. Wait until it is approved or rejected before applying again.`,
+    if (!isUnpaidLeave) {
+      const existingPendingSameTypeLeave = await Leave.findOne({
+        where: {
+          userId,
+          type: requestedType,
+          status: "pending",
+        },
+        attributes: ["id"],
       });
+
+      if (existingPendingSameTypeLeave) {
+        return res.status(400).json({
+          message: `You already have a pending ${toLeaveLabel(requestedType).toLowerCase()} leave request. Wait until it is approved or rejected before applying again.`,
+        });
+      }
     }
 
     // Prevent overlapping leaves (pending/approved)
@@ -299,27 +302,29 @@ const applyLeave = async (req, res) => {
       return res.status(400).json({ message: "You already have a leave in this date range" });
     }
 
-    const assignedTotal = toNumber(policyTotals[requestedType], 0);
-    if (assignedTotal <= 0) {
-      return res.status(400).json({
-        message: `${toLeaveLabel(requestedType)} leave access is not assigned by admin`,
+    if (!isUnpaidLeave) {
+      const assignedTotal = toNumber(policyTotals[requestedType], 0);
+      if (assignedTotal <= 0) {
+        return res.status(400).json({
+          message: `${toLeaveLabel(requestedType)} leave access is not assigned by admin`,
+        });
+      }
+
+      const approvedLeaves = await Leave.findAll({
+        where: { userId, status: "approved", type: requestedType },
+        attributes: ["totalDays"],
       });
-    }
 
-    const approvedLeaves = await Leave.findAll({
-      where: { userId, status: "approved", type: requestedType },
-      attributes: ["totalDays"],
-    });
+      const used = approvedLeaves.reduce((sum, l) => sum + (l.totalDays || 0), 0);
+      const available = Math.max(0, assignedTotal - used);
 
-    const used = approvedLeaves.reduce((sum, l) => sum + (l.totalDays || 0), 0);
-    const available = Math.max(0, assignedTotal - used);
-
-    if (totalDays > available) {
-      return res.status(400).json({
-        message: `Insufficient ${toLeaveLabel(requestedType).toLowerCase()} leave balance`,
-        available,
-        requested: totalDays,
-      });
+      if (totalDays > available) {
+        return res.status(400).json({
+          message: `Insufficient ${toLeaveLabel(requestedType).toLowerCase()} leave balance`,
+          available,
+          requested: totalDays,
+        });
+      }
     }
 
     const leave = await Leave.create({
@@ -488,12 +493,14 @@ const leaveSummary = async (req, res) => {
       const used = usedByType[typeKey] || 0;
       const total = Math.max(0, toNumber(policyTotals[typeKey], 0));
       const left = Math.max(0, total - used);
+      const isUnlimited = typeKey === "unpaid";
       return {
         type: DISPLAY_TYPE_BY_STORAGE[typeKey] || typeKey,
         total,
         used,
         left,
-        accessGranted: total > 0,
+        accessGranted: isUnlimited ? true : total > 0,
+        unlimited: isUnlimited,
       };
     });
 
