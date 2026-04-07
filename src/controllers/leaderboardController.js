@@ -17,12 +17,26 @@ const getProgress = (achieved, target) => {
   return Math.round((achieved / target) * 100);
 };
 
+const normalizeValue = (value) => String(value || "").trim().toLowerCase();
+
+const getDepartment = (user) =>
+  user?.professional?.department ||
+  user?.professional?.teamName ||
+  user?.department ||
+  "";
+
+const isSalesEmployee = (user) => {
+  const role = normalizeValue(user?.role);
+  const department = normalizeValue(getDepartment(user));
+  return role === "employee" && (department === "sales" || department.includes("sales"));
+};
+
 const listLeaderboard = async (_req, res) => {
   try {
     const [employees, performances] = await Promise.all([
       User.findAll({
         where: { role: "employee" },
-        attributes: ["id", "name", "email", "professional"],
+        attributes: ["id", "name", "email", "role", "professional"],
         order: [["name", "ASC"]],
       }),
       LeaderboardPerformance.findAll({
@@ -34,28 +48,32 @@ const listLeaderboard = async (_req, res) => {
       performances.map((perf) => [String(perf.employeeId), perf.toJSON()])
     );
 
-    const items = employees.map((employee) => {
-      const e = employee.toJSON();
-      const perf = perfMap.get(String(e.id)) || {};
-      const target = toNonNegativeInt(perf.target, 0);
-      const achieved = toNonNegativeInt(perf.achieved, 0);
-      const progress = getProgress(achieved, target);
+    const items = employees
+      .map((employee) => employee.toJSON())
+      .filter(isSalesEmployee)
+      .map((employee) => {
+        const perf = perfMap.get(String(employee.id)) || {};
+        const target = toNonNegativeInt(perf.target, 0);
+        const achieved = toNonNegativeInt(perf.achieved, 0);
+        const progress = getProgress(achieved, target);
 
-      return {
-        employeeId: e.id,
-        _id: e.id,
-        id: e.id,
-        name: e.name || "Employee",
-        email: e.email || "",
-        employeeCode: e?.professional?.employeeId || "",
-        designation: e?.professional?.designation || "",
-        target,
-        achieved,
-        progress,
-        updatedBy: perf.updatedBy || "",
-        updatedAt: perf.updatedAt || null,
-      };
-    });
+        return {
+          employeeId: employee.id,
+          _id: employee.id,
+          id: employee.id,
+          name: employee.name || "Employee",
+          email: employee.email || "",
+          role: employee.role || "employee",
+          employeeCode: employee?.professional?.employeeId || "",
+          designation: employee?.professional?.designation || "",
+          department: getDepartment(employee),
+          target,
+          achieved,
+          progress,
+          updatedBy: perf.updatedBy || "",
+          updatedAt: perf.updatedAt || null,
+        };
+      });
 
     const ranked = items
       .sort((left, right) => {
@@ -106,11 +124,17 @@ const updatePerformance = async (req, res) => {
 
     const employee = await User.findOne({
       where: { id: employeeId, role: "employee" },
-      attributes: ["id", "name", "email", "professional"],
+      attributes: ["id", "name", "email", "role", "professional"],
     });
 
     if (!employee) {
       return res.status(404).json({ message: "Employee not found" });
+    }
+
+    if (!isSalesEmployee(employee.toJSON())) {
+      return res.status(400).json({
+        message: "Only Sales department employee accounts can be updated in leaderboard",
+      });
     }
 
     const [performance] = await LeaderboardPerformance.findOrCreate({
@@ -157,8 +181,10 @@ const updatePerformance = async (req, res) => {
         id: e.id,
         name: e.name || "Employee",
         email: e.email || "",
+        role: e.role || "employee",
         employeeCode: e?.professional?.employeeId || "",
         designation: e?.professional?.designation || "",
+        department: getDepartment(e),
         target: p.target,
         achieved: p.achieved,
         progress: getProgress(p.achieved, p.target),

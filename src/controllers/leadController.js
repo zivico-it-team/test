@@ -582,6 +582,104 @@ const createLead = async (req, res) => {
   }
 };
 
+const bulkUploadLeads = async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+    if (rows.length === 0) {
+      return res.status(400).json({ message: "rows are required" });
+    }
+
+    const normalizedRows = rows.map((row, index) => ({
+      rowNumber: Number(row?.rowNumber) || index + 2,
+      email: String(row?.email || "").trim(),
+      name: String(row?.name || "").trim(),
+      phone: String(row?.phone || row?.phoneNumber || "").trim(),
+      campaign: String(row?.campaign || "").trim(),
+      comment: String(row?.comment || "").trim(),
+    }));
+
+    const emailSet = new Set(
+      normalizedRows.map((row) => row.email.toLowerCase()).filter(Boolean)
+    );
+    const existingLeads = emailSet.size
+      ? await Lead.findAll({
+          where: {
+            email: {
+              [Op.in]: Array.from(emailSet),
+            },
+          },
+          attributes: ["email"],
+        })
+      : [];
+
+    const existingEmailSet = new Set(
+      existingLeads.map((lead) => String(lead.email || "").trim().toLowerCase())
+    );
+    const seenInFile = new Set();
+    const incomplete = [];
+    const toCreate = [];
+    let existingCount = 0;
+
+    normalizedRows.forEach((row) => {
+      const missingFields = [];
+      if (!row.email) missingFields.push("Email");
+      if (!row.name) missingFields.push("Name");
+      if (!row.phone) missingFields.push("Phone");
+
+      if (missingFields.length > 0) {
+        incomplete.push({
+          rowNumber: row.rowNumber,
+          reason: `Missing ${missingFields.join(", ")}`,
+        });
+        return;
+      }
+
+      const normalizedEmail = row.email.toLowerCase();
+      if (existingEmailSet.has(normalizedEmail) || seenInFile.has(normalizedEmail)) {
+        existingCount += 1;
+        return;
+      }
+
+      seenInFile.add(normalizedEmail);
+      toCreate.push({
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+        comment: row.comment || "Imported from Excel",
+        campaign: row.campaign || "Excel Upload",
+        source: "excel",
+        stage: "New",
+        tag: "New Lead",
+        uploadedBy: String(
+          req.body?.uploadedBy || req.user?.name || req.user?.email || "System"
+        ).trim(),
+        leadPool: UNASSIGNED_LEAD_POOL,
+      });
+    });
+
+    const createdLeads = toCreate.length > 0 ? await Lead.bulkCreate(toCreate) : [];
+
+    return res.status(201).json({
+      message: "Leads uploaded successfully",
+      summary: {
+        totalRows: normalizedRows.length,
+        newLeads: createdLeads.length,
+        existingLeads: existingCount,
+        incompleteLeads: incomplete.length,
+      },
+      data: {
+        created: createdLeads.map(mapLead),
+        incomplete,
+      },
+    });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to upload leads" });
+  }
+};
+
 const getLeadById = async (id) => {
   return Lead.findByPk(id);
 };
@@ -960,9 +1058,8 @@ const listDueReminders = async (req, res) => {
 
     return res.json({ items });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: err.message || "Failed to load due reminders" });
+    console.warn("Failed to load due reminders:", err.message || err);
+    return res.json({ items: [] });
   }
 };
 
@@ -1279,6 +1376,7 @@ const unassignLeads = async (req, res) => {
 module.exports = {
   listLeads,
   createLead,
+  bulkUploadLeads,
   toggleBookmark,
   toggleArchive,
   updateMasterData,
