@@ -4,6 +4,7 @@ const { protect, authorize, forbidHRLeadAccess } = require("../middleware/authMi
 const {
   listLeads,
   createLead,
+  bulkUploadLeads,
   toggleBookmark,
   toggleArchive,
   updateMasterData,
@@ -25,6 +26,7 @@ const router = express.Router();
 
 router.get("/", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), listLeads);
 router.post("/", protect, forbidHRLeadAccess, authorize("admin", "manager"), createLead);
+router.post("/upload", protect, forbidHRLeadAccess, authorize("admin", "manager"), bulkUploadLeads);
 
 router.get("/assign/employees", protect, forbidHRLeadAccess, authorize("admin", "manager"), getAssignEmployees);
 router.get("/assign/stats", protect, forbidHRLeadAccess, authorize("admin", "manager"), getAssignStats);

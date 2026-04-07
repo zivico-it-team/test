@@ -15,6 +15,10 @@ const swaggerSpec = require("./src/config/swagger");
 
 const app = express();
 
+const isMysqlConnectionQuotaError = (error) =>
+  String(error?.original?.code || error?.parent?.code || error?.code || "").trim() ===
+  "ER_USER_LIMIT_REACHED";
+
 const requiredEnvVars = ["MYSQL_HOST", "MYSQL_DB", "MYSQL_USER", "MYSQL_PASSWORD", "JWT_SECRET"];
 const missingEnvVars = requiredEnvVars.filter((key) => !String(process.env[key] || "").trim());
 if (missingEnvVars.length > 0) {
@@ -149,17 +153,37 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
+let serverStarted = false;
+
+const listenOnce = (suffix = "") => {
+  if (serverStarted) {
+    return;
+  }
+
+  serverStarted = true;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}${suffix}`);
+    console.log("CORS allowed origins:", allowedOrigins.join(", "));
+  });
+};
 
 const startServer = async () => {
   try {
     await connectDB();
     await seedAdmin();
-
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log("CORS allowed origins:", allowedOrigins.join(", "));
-    });
+    listenOnce();
   } catch (error) {
+    if (isMysqlConnectionQuotaError(error)) {
+      console.error(
+        "Starting API in degraded mode because MySQL hourly connection quota was exceeded."
+      );
+      console.error(
+        "Wait for the host quota window to reset, and keep MYSQL_POOL_MAX low to avoid burning through connections."
+      );
+      listenOnce(" (degraded mode: database unavailable)");
+      return;
+    }
+
     console.error("Failed to start server", error);
     process.exit(1);
   }

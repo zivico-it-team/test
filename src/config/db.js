@@ -3,6 +3,10 @@ const { Sequelize, DataTypes } = require("sequelize");
 const isProduction = process.env.NODE_ENV === "production";
 const shouldSync =
   String(process.env.DB_SYNC || (isProduction ? "false" : "true")).toLowerCase() === "true";
+const poolMax = Math.max(1, Number(process.env.MYSQL_POOL_MAX || 3));
+const poolMin = Math.max(0, Number(process.env.MYSQL_POOL_MIN || 0));
+const poolAcquire = Math.max(5000, Number(process.env.MYSQL_POOL_ACQUIRE_MS || 60000));
+const poolIdle = Math.max(10000, Number(process.env.MYSQL_POOL_IDLE_MS || 300000));
 
 const GLOBAL_SEQUELIZE_KEY = "__zivico_mysql_sequelize__";
 const GLOBAL_DB_STATE_KEY = "__zivico_mysql_db_state__";
@@ -20,10 +24,10 @@ if (!globalStore[GLOBAL_SEQUELIZE_KEY]) {
       dialect: "mysql",
       logging: false,
       pool: {
-        max: 10,
-        min: 0,
-        acquire: 30000,
-        idle: 10000,
+        max: poolMax,
+        min: poolMin,
+        acquire: poolAcquire,
+        idle: poolIdle,
       },
       timezone: "+05:30",
     }
@@ -40,6 +44,10 @@ if (!globalStore[GLOBAL_DB_STATE_KEY]) {
 
 const sequelize = globalStore[GLOBAL_SEQUELIZE_KEY];
 const dbState = globalStore[GLOBAL_DB_STATE_KEY];
+
+const isMysqlConnectionQuotaError = (error) =>
+  String(error?.original?.code || error?.parent?.code || error?.code || "").trim() ===
+  "ER_USER_LIMIT_REACHED";
 
 const runBootstrapMigrations = async () => {
   const queryInterface = sequelize.getQueryInterface();
@@ -329,6 +337,11 @@ const connectDB = async () => {
   })()
     .catch((error) => {
       dbState.connected = false;
+      if (isMysqlConnectionQuotaError(error)) {
+        console.error(
+          "MySQL hourly connection quota reached. Reduce reconnect churn or wait for the provider quota window to reset."
+        );
+      }
       console.error("MySQL connection failed", error);
       throw error;
     })
