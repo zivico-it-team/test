@@ -725,8 +725,6 @@ const bulkUploadLeads = async (req, res) => {
       if (!row.email) missingFields.push("Email");
       if (!row.name) missingFields.push("Name");
       if (!row.phone) missingFields.push("Phone");
-      if (!row.campaign) missingFields.push("Campaign");
-      if (!row.comment) missingFields.push("Comment");
 
       if (missingFields.length > 0) {
         incomplete.push({
@@ -1379,6 +1377,36 @@ const isUnassignedWhere = {
   ],
 };
 
+const isNewWhere = {
+  [Op.and]: [
+    {
+      [Op.or]: [{ wasEverAssigned: false }, { wasEverAssigned: null }],
+    },
+    {
+      [Op.or]: [
+        { leadPool: UNASSIGNED_LEAD_POOL },
+        {
+          [Op.and]: [
+            {
+              [Op.or]: [{ leadPool: null }, { leadPool: "" }],
+            },
+            {
+              [Op.or]: [
+                { assignedTo: null },
+                { assignedTo: "" },
+                { assignedTo: "Unassigned" },
+              ],
+            },
+            {
+              [Op.or]: [{ assignedToId: null }, { assignedToId: "" }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
 const getAssignStats = async (_req, res) => {
   try {
     const [total, assigned, unassigned] = await Promise.all([
@@ -1410,12 +1438,7 @@ const getAssignLeads = async (req, res) => {
     } else if (filter === "unassigned") {
       where = mergeWhere(where, isUnassignedWhere);
     } else if (filter === "new") {
-      where = mergeWhere(where, {
-        [Op.or]: [
-          { stage: { [Op.in]: ["New"] } },
-          { tag: { [Op.in]: ["New", "New Lead"] } },
-        ],
-      });
+      where = mergeWhere(where, isNewWhere);
     } else if (
       filter === "sale_done" ||
       filter === "sale done" ||
@@ -1424,7 +1447,11 @@ const getAssignLeads = async (req, res) => {
       where = mergeWhere(where, {
         [Op.or]: [
           { stage: { [Op.in]: ["Converted", "Sale Done"] } },
-          { tag: { [Op.in]: ["Sale Done", "Converted"] } },
+          {
+            tag: {
+              [Op.in]: ["Sale Done", "Converted", "Existing Client (Invested)"],
+            },
+          },
         ],
       });
     }
