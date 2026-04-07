@@ -82,7 +82,7 @@ const runBootstrapMigrations = async () => {
       id: {
         type: DataTypes.UUID,
         allowNull: false,
-        primaryKey: true,
+        primaryKey: true,// Auto-generated UUIDs will be used in the application code when creating records, so no defaultValue is set here.
       },
       user_id: {
         type: DataTypes.UUID,
