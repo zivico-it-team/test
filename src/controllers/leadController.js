@@ -13,6 +13,82 @@ const toInt = (value, fallback) => {
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
 };
 
+const LEAD_LIST_ATTRIBUTES = [
+  "id",
+  "email",
+  "name",
+  "phone",
+  "country",
+  "preferredLanguage",
+  "assignedTo",
+  "assignedToId",
+  "wasEverAssigned",
+  "followUp",
+  "followUpSetById",
+  "followUpSetBy",
+  "followUpSetAt",
+  "followUpHandled",
+  "followUpHandledAt",
+  "followUpHandledById",
+  "stage",
+  "tag",
+  "comment",
+  "assignedDate",
+  "ComplaintsType",
+  "isBookmarked",
+  "isArchived",
+  "uploadedBy",
+  "campaign",
+  "source",
+  "leadPool",
+  "fax",
+  "gender",
+  "dateOfBirth",
+  "createdAt",
+  "updatedAt",
+];
+
+let leadTableColumnsPromise = null;
+const getLeadTableColumns = async () => {
+  if (!leadTableColumnsPromise) {
+    leadTableColumnsPromise = sequelize
+      .getQueryInterface()
+      .describeTable("leads")
+      .then((schema) => new Set(Object.keys(schema || {})))
+      .catch((error) => {
+        leadTableColumnsPromise = null;
+        throw error;
+      });
+  }
+
+  return leadTableColumnsPromise;
+};
+
+const getSafeLeadAttributes = async () => {
+  const availableColumns = await getLeadTableColumns();
+  return LEAD_LIST_ATTRIBUTES.filter((column) => availableColumns.has(column));
+};
+
+const buildLeadSearchWhere = async (search, fields = []) => {
+  const normalizedSearch = String(search || "").trim();
+  if (!normalizedSearch) {
+    return {};
+  }
+
+  const availableColumns = await getLeadTableColumns();
+  const filters = fields
+    .filter((field) => availableColumns.has(field))
+    .map((field) => ({
+      [field]: { [Op.like]: `%${normalizedSearch}%` },
+    }));
+
+  if (filters.length === 0) {
+    return {};
+  }
+
+  return { [Op.or]: filters };
+};
+
 const mapLead = (lead) => {
   const obj = typeof lead?.toJSON === "function" ? lead.toJSON() : lead;
   return {
@@ -487,22 +563,22 @@ const listLeads = async (req, res) => {
     let where = { ...baseWhere };
 
     if (search) {
-      const searchWhere = {
-        [Op.or]: [
-          { name: { [Op.like]: `%${search}%` } },
-          { email: { [Op.like]: `%${search}%` } },
-          { phone: { [Op.like]: `%${search}%` } },
-          { assignedTo: { [Op.like]: `%${search}%` } },
-          { campaign: { [Op.like]: `%${search}%` } },
-          { comment: { [Op.like]: `%${search}%` } },
-        ],
-      };
+      const searchWhere = await buildLeadSearchWhere(search, [
+        "name",
+        "email",
+        "phone",
+        "assignedTo",
+        "campaign",
+        "comment",
+      ]);
       where = mergeWhere(baseWhere, searchWhere);
     }
 
     const offset = (page - 1) * limit;
+    const attributes = await getSafeLeadAttributes();
     const { count, rows } = await Lead.findAndCountAll({
       where,
+      attributes,
       order: [["createdAt", "DESC"]],
       offset,
       limit,
@@ -1327,20 +1403,21 @@ const getAssignLeads = async (req, res) => {
     }
 
     if (search) {
-      where = mergeWhere(where, {
-        [Op.or]: [
-          { name: { [Op.like]: `%${search}%` } },
-          { email: { [Op.like]: `%${search}%` } },
-          { phone: { [Op.like]: `%${search}%` } },
-          { uploadedBy: { [Op.like]: `%${search}%` } },
-          { assignedTo: { [Op.like]: `%${search}%` } },
-        ],
-      });
+      const searchWhere = await buildLeadSearchWhere(search, [
+        "name",
+        "email",
+        "phone",
+        "uploadedBy",
+        "assignedTo",
+      ]);
+      where = mergeWhere(where, searchWhere);
     }
 
     const offset = (page - 1) * limit;
+    const attributes = await getSafeLeadAttributes();
     const { count, rows } = await Lead.findAndCountAll({
       where,
+      attributes,
       order: [["createdAt", "DESC"]],
       offset,
       limit,
