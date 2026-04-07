@@ -89,6 +89,27 @@ const buildLeadSearchWhere = async (search, fields = []) => {
   return { [Op.or]: filters };
 };
 
+const sanitizeLeadMutationValues = async (values = {}) => {
+  const availableColumns = await getLeadTableColumns();
+  return Object.fromEntries(
+    Object.entries(values).filter(([key]) => availableColumns.has(key))
+  );
+};
+
+const persistLeadChanges = async (lead, values = {}, options = {}) => {
+  const sanitizedValues = await sanitizeLeadMutationValues(values);
+  if (Object.keys(sanitizedValues).length === 0) {
+    return { lead, sanitizedValues };
+  }
+
+  await lead.update(sanitizedValues, options);
+  const refreshedLead = await getLeadById(lead.id, options);
+  return {
+    lead: refreshedLead || lead,
+    sanitizedValues,
+  };
+};
+
 const mapLead = (lead) => {
   const obj = typeof lead?.toJSON === "function" ? lead.toJSON() : lead;
   return {
@@ -813,8 +834,12 @@ const bulkUploadLeads = async (req, res) => {
   }
 };
 
-const getLeadById = async (id) => {
-  return Lead.findByPk(id);
+const getLeadById = async (id, options = {}) => {
+  const attributes = await getSafeLeadAttributes();
+  return Lead.findByPk(id, {
+    ...options,
+    attributes,
+  });
 };
 
 const ensureLead = async (id, res) => {
@@ -973,13 +998,14 @@ const updateMasterData = async (req, res) => {
       nextValues.followUpHandledById = "";
     }
 
-    const changedFields = Object.keys(MASTER_DATA_FIELD_LABELS).filter(
+    const persistedValues = await sanitizeLeadMutationValues(nextValues);
+    const changedFields = Object.keys(persistedValues).filter(
       (field) =>
         normalizeCompareValue(field, lead[field]) !==
-        normalizeCompareValue(field, nextValues[field]),
+        normalizeCompareValue(field, persistedValues[field]),
     );
 
-    await lead.update(nextValues);
+    const { lead: updatedLead } = await persistLeadChanges(lead, nextValues);
 
     let timelineEntry = null;
     if (changedFields.length > 0) {
@@ -994,7 +1020,7 @@ const updateMasterData = async (req, res) => {
       });
     }
 
-    return res.json({ lead: mapLead(lead), timeline: timelineEntry });
+    return res.json({ lead: mapLead(updatedLead), timeline: timelineEntry });
   } catch (err) {
     return res
       .status(500)
@@ -1009,11 +1035,12 @@ const updateTag = async (req, res) => {
     const previousTag = String(lead.tag || "New Lead").trim();
     const nextTag = String(req.body?.tag || lead.tag || "New Lead").trim();
 
-    lead.tag = nextTag;
-    await lead.save();
+    const { lead: updatedLead, sanitizedValues } = await persistLeadChanges(lead, {
+      tag: nextTag,
+    });
 
     let timelineEntry = null;
-    if (previousTag !== nextTag) {
+    if (sanitizedValues.tag !== undefined && previousTag !== nextTag) {
       timelineEntry = await addLeadTimeline({
         req,
         leadId: lead.id,
@@ -1022,7 +1049,7 @@ const updateTag = async (req, res) => {
       });
     }
 
-    return res.json({ lead: mapLead(lead), timeline: timelineEntry });
+    return res.json({ lead: mapLead(updatedLead), timeline: timelineEntry });
   } catch (err) {
     return res
       .status(500)
@@ -1037,11 +1064,12 @@ const updateStage = async (req, res) => {
     const previousStage = String(lead.stage || "New").trim();
     const nextStage = String(req.body?.stage || lead.stage || "New").trim();
 
-    lead.stage = nextStage;
-    await lead.save();
+    const { lead: updatedLead, sanitizedValues } = await persistLeadChanges(lead, {
+      stage: nextStage,
+    });
 
     let timelineEntry = null;
-    if (previousStage !== nextStage) {
+    if (sanitizedValues.stage !== undefined && previousStage !== nextStage) {
       timelineEntry = await addLeadTimeline({
         req,
         leadId: lead.id,
@@ -1050,7 +1078,7 @@ const updateStage = async (req, res) => {
       });
     }
 
-    return res.json({ lead: mapLead(lead), timeline: timelineEntry });
+    return res.json({ lead: mapLead(updatedLead), timeline: timelineEntry });
   } catch (err) {
     return res
       .status(500)
@@ -1097,6 +1125,7 @@ const addComment = async (req, res) => {
       return res.status(400).json({ message: "Comment is required" });
     }
 
+    const { lead: updatedLead } = await persistLeadChanges(lead, { comment });
     const timelineEntry = await addLeadTimeline({
       req,
       leadId: lead.id,
@@ -1104,13 +1133,9 @@ const addComment = async (req, res) => {
       details: comment,
     });
 
-    // Keep latest comment in lead master record for backward compatibility.
-    lead.comment = comment;
-    await lead.save();
-
     return res
       .status(201)
-      .json({ comment: timelineEntry, lead: mapLead(lead) });
+      .json({ comment: timelineEntry, lead: mapLead(updatedLead) });
   } catch (err) {
     return res
       .status(500)
@@ -1125,12 +1150,14 @@ const listDueReminders = async (req, res) => {
       return res.json({ items: [] });
     }
 
+    const attributes = await getSafeLeadAttributes();
     const leads = await Lead.findAll({
       where: {
         followUpSetById: userId,
         followUpHandled: false,
         followUp: { [Op.notIn]: ["", "N/A"] },
       },
+      attributes,
       order: [["updatedAt", "DESC"]],
       limit: 500,
     });
@@ -1244,7 +1271,7 @@ const deleteLead = async (req, res) => {
   try {
     transaction = await Lead.sequelize.transaction();
 
-    const lead = await Lead.findByPk(req.params.id, { transaction });
+    const lead = await getLeadById(req.params.id, { transaction });
     if (!lead) {
       await transaction.rollback();
       transaction = null;
