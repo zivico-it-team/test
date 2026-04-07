@@ -1,8 +1,10 @@
+const { randomUUID } = require("crypto");
 const { Op } = require("sequelize");
 
 const Lead = require("../models/Lead");
 const LeadTimeline = require("../models/LeadTimeline");
 const User = require("../models/User");
+const { sequelize } = require("../config/db");
 const { normalizeStoredImageUrl } = require("../utils/userNormalizer");
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -626,6 +628,8 @@ const bulkUploadLeads = async (req, res) => {
       if (!row.email) missingFields.push("Email");
       if (!row.name) missingFields.push("Name");
       if (!row.phone) missingFields.push("Phone");
+      if (!row.campaign) missingFields.push("Campaign");
+      if (!row.comment) missingFields.push("Comment");
 
       if (missingFields.length > 0) {
         incomplete.push({
@@ -646,8 +650,8 @@ const bulkUploadLeads = async (req, res) => {
         name: row.name,
         email: row.email,
         phone: row.phone,
-        comment: row.comment || "Imported from Excel",
-        campaign: row.campaign || "Excel Upload",
+        comment: row.comment,
+        campaign: row.campaign,
         source: "excel",
         stage: "New",
         tag: "New Lead",
@@ -658,7 +662,60 @@ const bulkUploadLeads = async (req, res) => {
       });
     });
 
-    const createdLeads = toCreate.length > 0 ? await Lead.bulkCreate(toCreate) : [];
+    let createdLeads = [];
+    if (toCreate.length > 0) {
+      const queryInterface = sequelize.getQueryInterface();
+      const describedTable = await queryInterface.describeTable("leads");
+      const availableColumns = new Set(Object.keys(describedTable || {}));
+      const now = new Date();
+
+      const rowsToInsert = toCreate.map((row) => {
+        const record = {};
+
+        if (availableColumns.has("id")) record.id = randomUUID();
+        if (availableColumns.has("email")) record.email = row.email;
+        if (availableColumns.has("name")) record.name = row.name;
+        if (availableColumns.has("phone")) record.phone = row.phone;
+        if (availableColumns.has("campaign")) record.campaign = row.campaign;
+        if (availableColumns.has("comment")) record.comment = row.comment;
+
+        if (availableColumns.has("source")) record.source = "excel";
+        if (availableColumns.has("stage")) record.stage = "New";
+        if (availableColumns.has("tag")) record.tag = "New Lead";
+        if (availableColumns.has("uploadedBy")) record.uploadedBy = row.uploadedBy;
+        if (availableColumns.has("leadPool")) record.leadPool = UNASSIGNED_LEAD_POOL;
+
+        if (availableColumns.has("country")) record.country = "";
+        if (availableColumns.has("preferredLanguage")) record.preferredLanguage = "";
+        if (availableColumns.has("assignedTo")) record.assignedTo = "";
+        if (availableColumns.has("assignedToId")) record.assignedToId = "";
+        if (availableColumns.has("wasEverAssigned")) record.wasEverAssigned = false;
+        if (availableColumns.has("followUp")) record.followUp = "";
+        if (availableColumns.has("followUpSetById")) record.followUpSetById = "";
+        if (availableColumns.has("followUpSetBy")) record.followUpSetBy = "";
+        if (availableColumns.has("followUpSetAt")) record.followUpSetAt = null;
+        if (availableColumns.has("followUpHandled")) record.followUpHandled = false;
+        if (availableColumns.has("followUpHandledAt")) record.followUpHandledAt = null;
+        if (availableColumns.has("followUpHandledById")) record.followUpHandledById = "";
+        if (availableColumns.has("assignedDate")) record.assignedDate = null;
+        if (availableColumns.has("fax")) record.fax = "";
+        if (availableColumns.has("gender")) record.gender = "";
+        if (availableColumns.has("dateOfBirth")) record.dateOfBirth = "";
+        if (availableColumns.has("isBookmarked")) record.isBookmarked = false;
+        if (availableColumns.has("isArchived")) record.isArchived = false;
+        if (availableColumns.has("ComplaintsType")) record.ComplaintsType = "Standard";
+        if (availableColumns.has("createdAt")) record.createdAt = now;
+        if (availableColumns.has("updatedAt")) record.updatedAt = now;
+
+        return record;
+      });
+
+      await queryInterface.bulkInsert("leads", rowsToInsert);
+      createdLeads = rowsToInsert.map((row) => ({
+        ...row,
+        _id: row.id,
+      }));
+    }
 
     return res.status(201).json({
       message: "Leads uploaded successfully",
