@@ -235,7 +235,7 @@ router.post("/manager", protect, authorizeAdminOrHR, addManager);
  *       500:
  *         description: Server error
  */
-router.post("/employee", protect, authorize("admin", "manager"), addEmployee);
+router.post("/employee", protect, authorize("admin", "manager", "hr"), addEmployee);
 
 /* ===========================
    MANAGER CRUD (Admin only)
@@ -390,7 +390,7 @@ router.delete("/manager/:id", protect, authorizeAdminOrHR, deleteManager);
  *       500:
  *         description: Server error
  */
-router.get("/employee", protect, authorize("admin", "manager"), getEmployees);
+router.get("/employee", protect, authorize("admin", "manager", "hr"), getEmployees);
 router.get("/access/pending", protect, adminOnly, getPendingEmployeeAccess);
 router.patch("/access/:id/approve", protect, adminOnly, approveEmployeeAccess);
 
@@ -424,7 +424,7 @@ router.patch("/access/:id/approve", protect, adminOnly, approveEmployeeAccess);
  *       500:
  *         description: Server error
  */
-router.get("/employee/:id", protect, authorize("admin", "manager", "employee"), getEmployeeById);
+router.get("/employee/:id", protect, authorize("admin", "manager", "hr", "employee"), getEmployeeById);
 
 /**
  * @swagger
@@ -458,7 +458,7 @@ router.get("/employee/:id", protect, authorize("admin", "manager", "employee"), 
  *       500:
  *         description: Server error
  */
-router.patch("/employee/:id", protect, authorize("admin", "manager", "employee"), updateEmployee);
+router.patch("/employee/:id", protect, authorize("admin", "manager", "hr", "employee"), updateEmployee);
 
 /**
  * @swagger
@@ -486,7 +486,7 @@ router.patch("/employee/:id", protect, authorize("admin", "manager", "employee")
  *       500:
  *         description: Server error
  */
-router.delete("/employee/:id", protect, authorize("admin", "manager"), deleteEmployee);
+router.delete("/employee/:id", protect, authorize("admin", "manager", "hr"), deleteEmployee);
 
 /* ===========================
    ADMIN PROFILE (Admin only)

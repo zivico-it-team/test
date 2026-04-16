@@ -50,9 +50,32 @@ const normalizeLeaveBalancePayload = (value) => {
       configObject && typeof configObject === "object"
         ? configObject.total ?? configObject.assigned ?? configObject.allocation ?? rawConfig
         : rawConfig;
+    const total = Math.max(0, toNumber(totalSource, 0));
+    const halfDay = toNumber(configObject?.halfDay ?? configObject?.half_day, 0) > 0 ? 1 : 0;
+    const remainingSource =
+      configObject?.remaining ??
+      configObject?.left ??
+      configObject?.available ??
+      configObject?.balance;
+    const explicitUsedSource =
+      configObject?.used ??
+      configObject?.usedDays ??
+      configObject?.taken ??
+      configObject?.spent;
+    const effectiveUsed =
+      explicitUsedSource !== undefined
+        ? Math.max(0, toNumber(explicitUsedSource, 0))
+        : Math.max(0, total - Math.max(0, toNumber(remainingSource, total)));
+    const remaining = Math.max(0, total - effectiveUsed);
 
     normalized[key] = {
-      total: Math.max(0, toNumber(totalSource, 0)),
+      total,
+      used: effectiveUsed,
+      left: remaining,
+      remaining,
+      halfDay,
+      accessGranted: key === "unpaid" ? true : total > 0,
+      ...(key === "unpaid" ? { unlimited: true } : {}),
     };
   }
 

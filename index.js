@@ -1,5 +1,4 @@
 const path = require("path");
-const fs = require("fs");
 const dotenv = require("dotenv");
 
 // Load .env before importing modules that depend on env vars
@@ -10,6 +9,7 @@ const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
 
 const { connectDB } = require("./src/config/db");
+const { uploadsDir, uploadsRoute } = require("./src/config/uploads");
 const seedAdmin = require("./src/config/seedAdmin");
 const swaggerSpec = require("./src/config/swagger");
 
@@ -111,13 +111,9 @@ app.use("/api/attendance-tracker", require("./src/routes/attendanceTrackerRoutes
 app.use("/api/hierarchy", require("./src/routes/hierarchyRoutes"));
 app.use("/api/leads", require("./src/routes/leadRoutes"));
 
-const uploadsPath = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadsPath)) {
-  fs.mkdirSync(uploadsPath, { recursive: true });
-}
 app.use(
-  "/uploads",
-  express.static(uploadsPath, {
+  uploadsRoute,
+  express.static(uploadsDir, {
     etag: true,
     maxAge: "1h",
   })

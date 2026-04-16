@@ -10,6 +10,25 @@ const toNonNegativeInt = (value, fallback = 0) => {
   return Math.max(0, Math.trunc(toNumber(value, fallback)));
 };
 
+const parseProfessional = (value) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : {};
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  return {};
+};
+
 const getProgress = (achieved, target) => {
   if (!target) {
     return 0;
@@ -19,9 +38,11 @@ const getProgress = (achieved, target) => {
 
 const normalizeValue = (value) => String(value || "").trim().toLowerCase();
 
+const getProfessional = (user) => parseProfessional(user?.professional);
+
 const getDepartment = (user) =>
-  user?.professional?.department ||
-  user?.professional?.teamName ||
+  getProfessional(user)?.department ||
+  getProfessional(user)?.teamName ||
   user?.department ||
   "";
 
@@ -64,8 +85,8 @@ const listLeaderboard = async (_req, res) => {
           name: employee.name || "Employee",
           email: employee.email || "",
           role: employee.role || "employee",
-          employeeCode: employee?.professional?.employeeId || "",
-          designation: employee?.professional?.designation || "",
+          employeeCode: getProfessional(employee)?.employeeId || "",
+          designation: getProfessional(employee)?.designation || "",
           department: getDepartment(employee),
           target,
           achieved,
@@ -182,8 +203,8 @@ const updatePerformance = async (req, res) => {
         name: e.name || "Employee",
         email: e.email || "",
         role: e.role || "employee",
-        employeeCode: e?.professional?.employeeId || "",
-        designation: e?.professional?.designation || "",
+        employeeCode: getProfessional(e)?.employeeId || "",
+        designation: getProfessional(e)?.designation || "",
         department: getDepartment(e),
         target: p.target,
         achieved: p.achieved,

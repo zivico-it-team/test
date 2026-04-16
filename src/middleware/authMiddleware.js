@@ -106,7 +106,11 @@ const protect = async (req, res, next) => {
       return res.status(403).json({ message: "Your account is awaiting admin approval" });
     }
 
-    req.user = { ...user };
+    req.user = {
+      ...user,
+      role: normalizeValue(user.role),
+      approvalStatus: normalizeValue(user.approvalStatus || "approved"),
+    };
     next();
   } catch (err) {
     if (err?.name === "TokenExpiredError" || err?.name === "JsonWebTokenError") {
@@ -120,12 +124,14 @@ const protect = async (req, res, next) => {
 
 const authorize = (...roles) => {
   return (req, res, next) => {
-    const allowedRoles = new Set(roles);
+    const allowedRoles = new Set(roles.map((role) => normalizeValue(role)));
     if (allowedRoles.has("admin")) {
       allowedRoles.add("hr");
     }
 
-    if (!req.user || !allowedRoles.has(req.user.role)) {
+    const userRole = normalizeValue(req.user?.role);
+
+    if (!req.user || !allowedRoles.has(userRole)) {
       return res.status(403).json({ message: "Access denied" });
     }
     next();
@@ -137,7 +143,9 @@ const authorizeAdminOrHR = (req, res, next) => {
     return res.status(403).json({ message: "Access denied" });
   }
 
-  if (req.user.role === "admin" || req.user.role === "hr" || isHRStaff(req.user)) {
+  const userRole = normalizeValue(req.user.role);
+
+  if (userRole === "admin" || userRole === "hr" || isHRStaff(req.user)) {
     return next();
   }
 
