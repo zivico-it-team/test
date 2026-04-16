@@ -1,19 +1,15 @@
 const path = require("path");
-const fs = require("fs");
 const multer = require("multer");
 const Upload = require("../models/Upload");
 const FileShare = require("../models/FileShare");
 const User = require("../models/User");
 const { Op } = require("sequelize");
 const { sequelize } = require("../config/db");
-
-// ensure uploads folder exists
-const uploadDir = path.join(__dirname, "../../uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+const { uploadsDir, uploadsRoute } = require("../config/uploads");
 
 // multer storage
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
+  destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
     const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
@@ -42,7 +38,7 @@ const uploadFile = async (req, res) => {
       fileName: req.file.filename,
       mimeType: req.file.mimetype,
       size: req.file.size,
-      url: `/uploads/${req.file.filename}`, // static serve needed
+      url: `${uploadsRoute}/${req.file.filename}`,
     });
 
     const f = fileDoc.toJSON();

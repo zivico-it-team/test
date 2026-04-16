@@ -66,11 +66,16 @@ const toLeaveLabel = (typeKey = "") => {
   return typeKey.charAt(0).toUpperCase() + typeKey.slice(1);
 };
 
-const buildUserPolicyTotals = (user = {}) => {
+const buildUserPolicyBalances = (user = {}) => {
   const professional = toPlainObject(user?.professional, {});
   const rawPolicySource = professional?.leaveBalance ?? professional?.leaveBalances ?? {};
   const rawPolicy = toPlainObject(rawPolicySource, {});
-  const normalizedPolicy = { ...EMPTY_POLICY_TOTALS };
+  const normalizedPolicy = {
+    annual: { total: 0, used: 0 },
+    casual: { total: 0, used: 0 },
+    medical: { total: 0, used: 0 },
+    unpaid: { total: 0, used: 0 },
+  };
   let hasConfiguredTypes = false;
 
   if (rawPolicy && typeof rawPolicy === "object") {
@@ -80,19 +85,53 @@ const buildUserPolicyTotals = (user = {}) => {
 
       hasConfiguredTypes = true;
       const configObject = toPlainObject(rawConfig, null);
-      const configuredTotal =
+      const totalSource =
         configObject && typeof configObject === "object"
           ? configObject.total ?? configObject.assigned ?? configObject.allocation ?? rawConfig
           : rawConfig;
-      normalizedPolicy[typeKey] = Math.max(0, toNumber(configuredTotal, 0));
+      const total = Math.max(0, toNumber(totalSource, 0));
+      const remainingSource =
+        configObject?.left ??
+        configObject?.remaining ??
+        configObject?.available ??
+        configObject?.balance;
+      const explicitUsedSource =
+        configObject?.used ??
+        configObject?.usedDays ??
+        configObject?.taken ??
+        configObject?.spent;
+      const effectiveUsed =
+        explicitUsedSource !== undefined
+          ? Math.max(0, toNumber(explicitUsedSource, 0))
+          : Math.max(0, total - Math.max(0, toNumber(remainingSource, total)));
+
+      normalizedPolicy[typeKey] = {
+        total,
+        used: effectiveUsed,
+      };
     }
   }
 
   if ((user?.role === "admin" || user?.role === "manager") && !hasConfiguredTypes) {
-    return { ...LEGACY_POLICY_TOTALS };
+    return Object.fromEntries(
+      Object.entries(LEGACY_POLICY_TOTALS).map(([typeKey, total]) => [
+        typeKey,
+        { total, used: 0 },
+      ])
+    );
   }
 
   return normalizedPolicy;
+};
+
+const buildUserPolicyTotals = (user = {}) => {
+  const policyBalances = buildUserPolicyBalances(user);
+  return Object.fromEntries(
+    Object.entries(policyBalances).map(([typeKey, balance]) => [
+      typeKey,
+      Math.max(0, toNumber(balance?.total, 0)),
+    ])
+  );
 };
 
 const getAllBalanceTypes = () => Object.keys(EMPTY_POLICY_TOTALS);
@@ -232,7 +271,7 @@ const applyLeave = async (req, res) => {
 
     const { type, fromDate, toDate, reason, isHalfDay, session } = req.body;
     const requestedType = getLeaveTypeKey(type);
-    const policyTotals = buildUserPolicyTotals(actorUser);
+    const policyBalances = buildUserPolicyBalances(actorUser);
     const halfDayRequested = toBoolean(isHalfDay);
     const isUnpaidLeave = requestedType === "unpaid";
 
@@ -303,7 +342,7 @@ const applyLeave = async (req, res) => {
     }
 
     if (!isUnpaidLeave) {
-      const assignedTotal = toNumber(policyTotals[requestedType], 0);
+      const assignedTotal = toNumber(policyBalances[requestedType]?.total, 0);
       if (assignedTotal <= 0) {
         return res.status(400).json({
           message: `${toLeaveLabel(requestedType)} leave access is not assigned by admin`,
@@ -315,7 +354,9 @@ const applyLeave = async (req, res) => {
         attributes: ["totalDays"],
       });
 
-      const used = approvedLeaves.reduce((sum, l) => sum + (l.totalDays || 0), 0);
+      const approvedUsed = approvedLeaves.reduce((sum, l) => sum + (l.totalDays || 0), 0);
+      const configuredUsed = toNumber(policyBalances[requestedType]?.used, 0);
+      const used = Math.max(configuredUsed, approvedUsed);
       const available = Math.max(0, assignedTotal - used);
 
       if (totalDays > available) {
@@ -461,7 +502,7 @@ const leaveSummary = async (req, res) => {
     const freshUserRecord = await User.findByPk(userId, {
       attributes: ["id", "role", "professional"],
     });
-    const policyTotals = buildUserPolicyTotals(
+    const policyBalances = buildUserPolicyBalances(
       freshUserRecord
         ? typeof freshUserRecord.toJSON === "function"
           ? freshUserRecord.toJSON()
@@ -487,11 +528,11 @@ const leaveSummary = async (req, res) => {
       usedByType[typeKey] += l.totalDays || 0;
     }
 
-    const daysUsed = usedByType.annual + usedByType.casual + usedByType.medical + usedByType.unpaid;
-
     const balances = getAllBalanceTypes().map((typeKey) => {
-      const used = usedByType[typeKey] || 0;
-      const total = Math.max(0, toNumber(policyTotals[typeKey], 0));
+      const configuredUsed = toNumber(policyBalances[typeKey]?.used, 0);
+      const approvedUsed = usedByType[typeKey] || 0;
+      const used = Math.max(configuredUsed, approvedUsed);
+      const total = Math.max(0, toNumber(policyBalances[typeKey]?.total, 0));
       const left = Math.max(0, total - used);
       const isUnlimited = typeKey === "unpaid";
       return {
@@ -503,6 +544,8 @@ const leaveSummary = async (req, res) => {
         unlimited: isUnlimited,
       };
     });
+
+    const daysUsed = balances.reduce((sum, balance) => sum + toNumber(balance.used, 0), 0);
 
     res.json({
       cards: {
