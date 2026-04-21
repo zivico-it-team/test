@@ -5,12 +5,35 @@ const Lead = require("../models/Lead");
 const LeadTimeline = require("../models/LeadTimeline");
 const User = require("../models/User");
 const { sequelize } = require("../config/db");
-const { normalizeStoredImageUrl } = require("../utils/userNormalizer");
+const {
+  normalizeStoredImageUrl,
+  normalizeProfessional,
+} = require("../utils/userNormalizer");
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const toInt = (value, fallback) => {
   const n = Number(value);
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
+};
+const normalizeTextValue = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const getUserDepartment = (user) => {
+  const professional = normalizeProfessional(user?.professional);
+  return (
+    professional?.department ||
+    professional?.teamName ||
+    user?.department ||
+    ""
+  );
+};
+
+const isSalesDepartmentEmployee = (user) => {
+  const role = normalizeTextValue(user?.role);
+  const department = normalizeTextValue(getUserDepartment(user));
+  return role === "employee" && department.includes("sales");
 };
 
 const LEAD_LIST_ATTRIBUTES = [
@@ -125,7 +148,88 @@ const mapLead = (lead) => {
     followUpHandled: Boolean(obj?.followUpHandled),
     followUpHandledAt: obj?.followUpHandledAt || null,
     followUpHandledById: obj?.followUpHandledById || "",
+    hasLeadDetailUpdates: Boolean(obj?.hasLeadDetailUpdates),
+    isCompletedLead: Boolean(obj?.isCompletedLead),
+    isNewLead: Boolean(obj?.isNewLead),
+    isSalesDoneLead: Boolean(obj?.isSalesDoneLead),
   };
+};
+
+const DETAIL_UPDATE_TIMELINE_ACTIONS = [
+  "Tag Updated",
+  "Stage Updated",
+  "Master Data Updated",
+];
+
+const normalizeLeadValue = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const isSalesDoneStage = (stage) =>
+  ["sale done", "sales done", "converted"].includes(
+    normalizeLeadValue(stage),
+  );
+
+const decorateLeadWithDerivedStatus = (lead, hasLeadDetailUpdates = false) => {
+  const mappedLead = mapLead(lead);
+  const salesDone = isSalesDoneStage(mappedLead.stage);
+  const leadDetailUpdates = Boolean(hasLeadDetailUpdates);
+
+  return {
+    ...mappedLead,
+    hasLeadDetailUpdates: leadDetailUpdates,
+    isCompletedLead: leadDetailUpdates && !salesDone,
+    isNewLead: !leadDetailUpdates && !salesDone,
+    isSalesDoneLead: salesDone,
+  };
+};
+
+const buildLeadDetailUpdateLookup = async (leadIds = []) => {
+  const ids = Array.from(
+    new Set((leadIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
+  );
+
+  if (ids.length === 0) {
+    return new Set();
+  }
+
+  await ensureLeadTimelineReady();
+
+  const rows = await LeadTimeline.findAll({
+    where: {
+      leadId: { [Op.in]: ids },
+      action: { [Op.in]: DETAIL_UPDATE_TIMELINE_ACTIONS },
+    },
+    attributes: ["leadId"],
+    group: ["leadId"],
+    raw: true,
+  });
+
+  return new Set(
+    rows.map((row) => String(row?.leadId || "").trim()).filter(Boolean),
+  );
+};
+
+const mapLeadWithDerivedStatus = async (lead) => {
+  const leadId = String(lead?.id || lead?._id || "").trim();
+  const updatedLeadLookup = await buildLeadDetailUpdateLookup(
+    leadId ? [leadId] : [],
+  );
+
+  return decorateLeadWithDerivedStatus(lead, updatedLeadLookup.has(leadId));
+};
+
+const mapLeadListWithDerivedStatus = async (leads = []) => {
+  const leadIds = (Array.isArray(leads) ? leads : [])
+    .map((lead) => String(lead?.id || lead?._id || "").trim())
+    .filter(Boolean);
+  const updatedLeadLookup = await buildLeadDetailUpdateLookup(leadIds);
+
+  return (Array.isArray(leads) ? leads : []).map((lead) => {
+    const leadId = String(lead?.id || lead?._id || "").trim();
+    return decorateLeadWithDerivedStatus(lead, updatedLeadLookup.has(leadId));
+  });
 };
 
 const ASSIGNED_LEAD_POOL = "SL_EMP_ASSIGNED";
@@ -606,7 +710,7 @@ const listLeads = async (req, res) => {
     });
 
     return res.json({
-      items: rows.map(mapLead),
+      items: await mapLeadListWithDerivedStatus(rows),
       page,
       pages: Math.max(1, Math.ceil(count / limit)),
       total: count,
@@ -673,7 +777,9 @@ const createLead = async (req, res) => {
       dateOfBirth: String(req.body?.dateOfBirth || "").trim(),
     });
 
-    return res.status(201).json({ lead: mapLead(lead) });
+    return res
+      .status(201)
+      .json({ lead: decorateLeadWithDerivedStatus(lead, false) });
   } catch (err) {
     return res
       .status(500)
@@ -857,7 +963,7 @@ const toggleBookmark = async (req, res) => {
     lead.isBookmarked = !lead.isBookmarked;
     await lead.save();
 
-    return res.json(mapLead(lead));
+    return res.json(await mapLeadWithDerivedStatus(lead));
   } catch (err) {
     return res
       .status(500)
@@ -873,7 +979,7 @@ const toggleArchive = async (req, res) => {
     lead.isArchived = !lead.isArchived;
     await lead.save();
 
-    return res.json(mapLead(lead));
+    return res.json(await mapLeadWithDerivedStatus(lead));
   } catch (err) {
     return res
       .status(500)
@@ -1018,7 +1124,12 @@ const updateMasterData = async (req, res) => {
       });
     }
 
-    return res.json({ lead: mapLead(updatedLead), timeline: timelineEntry });
+    const leadResponse =
+      changedFields.length > 0
+        ? decorateLeadWithDerivedStatus(updatedLead, true)
+        : await mapLeadWithDerivedStatus(updatedLead);
+
+    return res.json({ lead: leadResponse, timeline: timelineEntry });
   } catch (err) {
     return res
       .status(500)
@@ -1047,7 +1158,12 @@ const updateTag = async (req, res) => {
       });
     }
 
-    return res.json({ lead: mapLead(updatedLead), timeline: timelineEntry });
+    const leadResponse =
+      sanitizedValues.tag !== undefined && previousTag !== nextTag
+        ? decorateLeadWithDerivedStatus(updatedLead, true)
+        : await mapLeadWithDerivedStatus(updatedLead);
+
+    return res.json({ lead: leadResponse, timeline: timelineEntry });
   } catch (err) {
     return res
       .status(500)
@@ -1076,7 +1192,12 @@ const updateStage = async (req, res) => {
       });
     }
 
-    return res.json({ lead: mapLead(updatedLead), timeline: timelineEntry });
+    const leadResponse =
+      sanitizedValues.stage !== undefined && previousStage !== nextStage
+        ? decorateLeadWithDerivedStatus(updatedLead, true)
+        : await mapLeadWithDerivedStatus(updatedLead);
+
+    return res.json({ lead: leadResponse, timeline: timelineEntry });
   } catch (err) {
     return res
       .status(500)
@@ -1131,9 +1252,10 @@ const addComment = async (req, res) => {
       details: comment,
     });
 
-    return res
-      .status(201)
-      .json({ comment: timelineEntry, lead: mapLead(updatedLead) });
+    return res.status(201).json({
+      comment: timelineEntry,
+      lead: await mapLeadWithDerivedStatus(updatedLead),
+    });
   } catch (err) {
     return res
       .status(500)
@@ -1256,7 +1378,7 @@ const markReminderHandled = async (req, res) => {
     lead.followUpHandledById = userId;
     await lead.save();
 
-    return res.json({ lead: mapLead(lead) });
+    return res.json({ lead: await mapLeadWithDerivedStatus(lead) });
   } catch (err) {
     return res
       .status(500)
@@ -1305,19 +1427,32 @@ const getAssignEmployees = async (_req, res) => {
   try {
     const employees = await User.findAll({
       where: { role: "employee" },
-      attributes: ["id", "name", "email", "userName", "professional"],
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "userName",
+        "role",
+        "professional",
+      ],
       order: [["name", "ASC"]],
     });
 
     return res.json({
-      employees: employees.map((employee) => {
-        const obj = employee.toJSON();
-        return {
-          ...obj,
-          _id: obj.id,
-          id: obj.id,
-        };
-      }),
+      employees: employees
+        .map((employee) => {
+          const obj = employee.toJSON();
+          const professional = normalizeProfessional(obj.professional);
+          return {
+            ...obj,
+            _id: obj.id,
+            id: obj.id,
+            professional,
+            department: professional.department || professional.teamName || "",
+            designation: professional.designation || "",
+          };
+        })
+        .filter(isSalesDepartmentEmployee),
     });
   } catch (err) {
     return res
