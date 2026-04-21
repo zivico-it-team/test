@@ -14,6 +14,23 @@ const parseProfessional = (value) => {
   return {};
 };
 
+const normalizeValue = (value) => String(value || "").trim().toLowerCase();
+
+const getDesignation = (user) =>
+  normalizeValue(
+    parseProfessional(user?.professional)?.designation ||
+      user?.designation ||
+      ""
+  );
+
+const getDepartment = (user) =>
+  normalizeValue(
+    parseProfessional(user?.professional)?.department ||
+      parseProfessional(user?.professional)?.teamName ||
+      user?.department ||
+      ""
+  );
+
 const pickUser = (u) => {
   const normalized = toPublicUser(u);
   const professional = parseProfessional(normalized?.professional);
@@ -48,11 +65,67 @@ const pickUser = (u) => {
   };
 };
 
-const d = (u) => String(parseProfessional(u?.professional)?.designation || "").toLowerCase();
+const isCEO = (u) => getDesignation(u).includes("ceo") || u.role === "admin";
 
-const isCEO = (u) => d(u).includes("ceo") || u.role === "admin";
-const isHRManager = (u) => d(u).includes("hr") && d(u).includes("manager");
-const isManager = (u) => d(u).includes("manager") && !d(u).includes("hr") && !d(u).includes("ceo");
+const isHRDepartmentUser = (u) => {
+  const department = getDepartment(u);
+  return (
+    department === "hr" ||
+    department.includes("human resource") ||
+    department.includes("human resources")
+  );
+};
+
+const isHRProfile = (u) => {
+  const role = normalizeValue(u?.role);
+  const designation = getDesignation(u);
+  const isHRManagerDesignation =
+    designation === "hr manager" ||
+    (designation.includes("hr") && designation.includes("manager"));
+  const isHRPartnerDesignation =
+    designation === "hr partner" ||
+    (designation.includes("hr") && designation.includes("partner"));
+
+  return (
+    role === "hr" ||
+    role.includes("hr") ||
+    isHRDepartmentUser(u) ||
+    isHRManagerDesignation ||
+    isHRPartnerDesignation ||
+    designation.includes("human resource") ||
+    designation.includes("human resources") ||
+    designation.startsWith("hr")
+  );
+};
+
+const getHRProfilePriority = (u) => {
+  const role = normalizeValue(u?.role);
+  const designation = getDesignation(u);
+  let score = 0;
+
+  if (role === "hr" || role.includes("hr")) score += 100;
+  if (isHRDepartmentUser(u)) score += 40;
+  if (designation === "hr manager") score += 30;
+  if (designation === "hr partner") score += 28;
+  if (designation.includes("manager")) score += 20;
+  if (designation.includes("partner")) score += 18;
+  if (designation.includes("director") || designation.includes("head")) score += 16;
+  if (designation.includes("lead")) score += 14;
+  if (designation.includes("executive")) score += 12;
+  if (designation.includes("generalist")) score += 10;
+  if (designation.includes("hr")) score += 8;
+
+  return score;
+};
+
+const isManager = (u) => {
+  const designation = getDesignation(u);
+  return (
+    designation.includes("manager") &&
+    !designation.includes("hr") &&
+    !designation.includes("ceo")
+  );
+};
 
 // ✅ GET /api/hierarchy/overview
 const hierarchyOverview = async (req, res) => {
@@ -80,10 +153,28 @@ const hierarchyOverview = async (req, res) => {
 
     // ---- Top roles (for employee view only) ----
     const ceo = users.find(isCEO) || null;
-    const hrManager = users.find(isHRManager) || null;
+    const hrManager =
+      users
+        .filter((user) => !isCEO(user) && isHRProfile(user))
+        .sort((left, right) => {
+          const priorityDiff =
+            getHRProfilePriority(right) - getHRProfilePriority(left);
+          if (priorityDiff !== 0) {
+            return priorityDiff;
+          }
+
+          return String(left?.name || "").localeCompare(
+            String(right?.name || "")
+          );
+        })[0] || null;
 
     // managers list without duplicating CEO/admin or HR manager in lower levels
-    const managers = users.filter((u) => (u.role === "manager" || isManager(u)) && !isCEO(u) && !isHRManager(u));
+    const managers = users.filter(
+      (u) =>
+        (u.role === "manager" || isManager(u)) &&
+        !isCEO(u) &&
+        !isHRProfile(u)
+    );
 
     // group employees by teamName
     const employees = users.filter((u) => u.role === "employee");
