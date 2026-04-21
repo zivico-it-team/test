@@ -219,7 +219,7 @@ router.get("/my", protect, authorize("employee", "manager", "admin"), myLeaves);
  *       500:
  *         description: Server error
  */
-router.get("/pending", protect, authorize("manager", "admin"), pendingLeaves);
+router.get("/pending", protect, authorize("manager", "admin", "hr"), pendingLeaves);
 
 /**
  * @swagger
@@ -266,6 +266,6 @@ router.get("/pending", protect, authorize("manager", "admin"), pendingLeaves);
  *       500:
  *         description: Server error
  */
-router.patch("/:leaveId/status", protect, authorize("manager", "admin"), updateLeaveStatus);
+router.patch("/:leaveId/status", protect, authorize("manager", "admin", "hr"), updateLeaveStatus);
 
 module.exports = router;
