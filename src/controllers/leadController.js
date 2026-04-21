@@ -159,6 +159,7 @@ const DETAIL_UPDATE_TIMELINE_ACTIONS = [
   "Tag Updated",
   "Stage Updated",
   "Master Data Updated",
+  "Comment Added",
 ];
 
 const normalizeLeadValue = (value) =>
