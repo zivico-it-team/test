@@ -37,6 +37,20 @@ router.get("/summary", protect, authorize("manager", "admin", "hr"), admin.admin
 
 /**
  * @swagger
+ * /api/leaves-admin/employee-balances:
+ *   get:
+ *     tags: [LeaveAdmin]
+ *     summary: Employee leave balances for admin and HR dashboards
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Employee leave balance list
+ */
+router.get("/employee-balances", protect, authorize("admin", "hr"), admin.adminEmployeeLeaveBalances);
+
+/**
+ * @swagger
  * /api/leaves-admin/list:
  *   get:
  *     tags: [LeaveAdmin]

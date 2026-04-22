@@ -1,4 +1,5 @@
 const Notification = require("../models/Notification");
+const { cleanupExpiredImportantDocuments } = require("../services/importantDocumentsService");
 
 const toNotificationJson = (notification) => {
   const item = typeof notification?.toJSON === "function" ? notification.toJSON() : notification;
@@ -10,6 +11,8 @@ const toNotificationJson = (notification) => {
 
 const listMyNotifications = async (req, res) => {
   try {
+    await cleanupExpiredImportantDocuments();
+
     const notifications = await Notification.findAll({
       where: { userId: req.user._id },
       order: [["createdAt", "DESC"]],
@@ -24,6 +27,8 @@ const listMyNotifications = async (req, res) => {
 
 const markNotificationAsRead = async (req, res) => {
   try {
+    await cleanupExpiredImportantDocuments();
+
     const notification = await Notification.findOne({
       where: { id: req.params.id, userId: req.user._id },
     });
