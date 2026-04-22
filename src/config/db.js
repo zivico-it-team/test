@@ -251,6 +251,236 @@ const runBootstrapMigrations = async () => {
     await queryInterface.addIndex("notifications", ["userId", "isRead"]);
     await queryInterface.addIndex("notifications", ["type"]);
     console.log("notifications table created");
+  } else {
+    const ensureNotificationColumn = async (name, definition) => {
+      if (notificationsTable?.[name]) return;
+      await queryInterface.addColumn("notifications", name, definition);
+      console.log(`Notifications.${name} column added`);
+    };
+
+    await ensureNotificationColumn("title", {
+      type: DataTypes.STRING(160),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureNotificationColumn("message", {
+      type: DataTypes.STRING(500),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureNotificationColumn("type", {
+      type: DataTypes.STRING(60),
+      allowNull: false,
+      defaultValue: "general",
+    });
+    await ensureNotificationColumn("module", {
+      type: DataTypes.STRING(60),
+      allowNull: false,
+      defaultValue: "general",
+    });
+    await ensureNotificationColumn("isRead", {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    });
+    await ensureNotificationColumn("readAt", {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    });
+    await ensureNotificationColumn("meta", {
+      type: DataTypes.JSON,
+      allowNull: true,
+    });
+    await ensureNotificationColumn("createdAt", {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+    });
+    await ensureNotificationColumn("updatedAt", {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+    });
+  }
+
+  const uploadsTable = await queryInterface.describeTable("uploads").catch(() => null);
+  if (!uploadsTable) {
+    await queryInterface.createTable("uploads", {
+      id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        primaryKey: true,
+      },
+      userId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: "users", key: "id" },
+        onUpdate: "CASCADE",
+        onDelete: "CASCADE",
+      },
+      originalName: {
+        type: DataTypes.STRING(255),
+        allowNull: false,
+      },
+      fileName: {
+        type: DataTypes.STRING(255),
+        allowNull: false,
+      },
+      mimeType: {
+        type: DataTypes.STRING(120),
+        allowNull: false,
+      },
+      size: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+      },
+      url: {
+        type: DataTypes.STRING(255),
+        allowNull: false,
+      },
+      createdAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+    await queryInterface.addIndex("uploads", ["userId"]);
+    console.log("uploads table created");
+  } else {
+    const ensureUploadColumn = async (name, definition) => {
+      if (uploadsTable?.[name]) return;
+      await queryInterface.addColumn("uploads", name, definition);
+      console.log(`Uploads.${name} column added`);
+    };
+
+    await ensureUploadColumn("originalName", {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureUploadColumn("fileName", {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureUploadColumn("mimeType", {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureUploadColumn("size", {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    });
+    await ensureUploadColumn("url", {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureUploadColumn("createdAt", {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+    });
+    await ensureUploadColumn("updatedAt", {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+    });
+  }
+
+  const importantDocumentsTable = await queryInterface
+    .describeTable("important_documents")
+    .catch(() => null);
+  if (!importantDocumentsTable) {
+    await queryInterface.createTable("important_documents", {
+      id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        primaryKey: true,
+      },
+      uploadId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        unique: true,
+        references: { model: "uploads", key: "id" },
+        onUpdate: "CASCADE",
+        onDelete: "CASCADE",
+      },
+      uploadedById: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: "users", key: "id" },
+        onUpdate: "CASCADE",
+        onDelete: "CASCADE",
+      },
+      title: {
+        type: DataTypes.STRING(160),
+        allowNull: false,
+        defaultValue: "",
+      },
+      note: {
+        type: DataTypes.STRING(1200),
+        allowNull: false,
+        defaultValue: "",
+      },
+      expiresAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+      },
+      createdAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+    await queryInterface.addIndex("important_documents", ["expiresAt"]);
+    await queryInterface.addIndex("important_documents", ["uploadedById"]);
+    console.log("important_documents table created");
+  } else {
+    const ensureImportantDocumentColumn = async (name, definition) => {
+      if (importantDocumentsTable?.[name]) return;
+      await queryInterface.addColumn("important_documents", name, definition);
+      console.log(`ImportantDocuments.${name} column added`);
+    };
+
+    await ensureImportantDocumentColumn("title", {
+      type: DataTypes.STRING(160),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureImportantDocumentColumn("note", {
+      type: DataTypes.STRING(1200),
+      allowNull: false,
+      defaultValue: "",
+    });
+    await ensureImportantDocumentColumn("expiresAt", {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+    });
+    await ensureImportantDocumentColumn("createdAt", {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+    });
+    await ensureImportantDocumentColumn("updatedAt", {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+    });
   }
 
   const leadTable = await queryInterface.describeTable("leads").catch(() => null);
