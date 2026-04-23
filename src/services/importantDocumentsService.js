@@ -48,7 +48,7 @@ const removeStoredFile = async (file = {}) => {
     await fs.unlink(targetPath);
   } catch (error) {
     if (error?.code !== "ENOENT") {
-      console.error("Failed to delete expired important document file:", error);
+      console.error("Failed to delete important document file:", error);
     }
   }
 };
@@ -138,4 +138,5 @@ module.exports = {
   buildDocumentExpiryDate,
   cleanupExpiredImportantDocuments,
   getImportantDocumentRouteForRole,
+  removeStoredFile,
 };

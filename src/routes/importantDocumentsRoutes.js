@@ -3,6 +3,7 @@ const express = require("express");
 const { protect, authorize } = require("../middleware/authMiddleware");
 const {
   createImportantDocument,
+  deleteImportantDocument,
   listImportantDocuments,
   markImportantDocumentAsRead,
   uploadImportantDocumentSingle,
@@ -30,6 +31,13 @@ router.patch(
   protect,
   authorize("employee", "manager", "admin", "hr"),
   markImportantDocumentAsRead
+);
+
+router.delete(
+  "/:id",
+  protect,
+  authorize("admin", "hr"),
+  deleteImportantDocument
 );
 
 module.exports = router;

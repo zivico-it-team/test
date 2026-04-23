@@ -16,6 +16,7 @@ const {
   buildDocumentExpiryDate,
   cleanupExpiredImportantDocuments,
   getImportantDocumentRouteForRole,
+  removeStoredFile,
 } = require("../services/importantDocumentsService");
 
 const IMPORTANT_DOCUMENT_ALLOWED_MIME_TYPES = new Set([
@@ -93,6 +94,31 @@ const toImportantDocumentJson = (document, options = {}) => {
     isRead: notification ? Boolean(notification.isRead) : options.defaultReadState ?? false,
     notificationId: notification?.id || null,
   };
+};
+
+const getImportantDocumentNotificationIds = async (documentIds = [], options = {}) => {
+  const normalizedDocumentIds = new Set(
+    documentIds.map((id) => String(id || "").trim()).filter(Boolean)
+  );
+
+  if (!normalizedDocumentIds.size) {
+    return [];
+  }
+
+  const notifications = await Notification.findAll({
+    where: { module: IMPORTANT_DOCUMENT_MODULE },
+    attributes: ["id", "meta"],
+    transaction: options.transaction,
+  });
+
+  return notifications
+    .filter((notification) => {
+      const meta =
+        notification?.meta && typeof notification.meta === "object" ? notification.meta : {};
+      return normalizedDocumentIds.has(String(meta.documentId || "").trim());
+    })
+    .map((notification) => notification.id)
+    .filter(Boolean);
 };
 
 const listImportantDocuments = async (req, res) => {
@@ -271,6 +297,71 @@ const createImportantDocument = async (req, res) => {
   }
 };
 
+const deleteImportantDocument = async (req, res) => {
+  try {
+    await cleanupExpiredImportantDocuments();
+
+    const documentId = String(req.params.id || "").trim();
+    const documentRecord = await ImportantDocument.findByPk(documentId, {
+      include: [
+        {
+          model: Upload,
+          as: "file",
+          required: false,
+          attributes: ["id", "fileName", "url"],
+        },
+      ],
+    });
+
+    if (!documentRecord) {
+      return res.status(404).json({ message: "Important document not found" });
+    }
+
+    const documentData =
+      typeof documentRecord.toJSON === "function" ? documentRecord.toJSON() : documentRecord;
+    const uploadId = documentData.uploadId;
+    const file = documentData.file || null;
+
+    await sequelize.transaction(async (transaction) => {
+      const notificationIds = await getImportantDocumentNotificationIds([documentId], {
+        transaction,
+      });
+
+      if (notificationIds.length) {
+        await Notification.destroy({
+          where: {
+            id: {
+              [Op.in]: notificationIds,
+            },
+          },
+          transaction,
+        });
+      }
+
+      await ImportantDocument.destroy({
+        where: { id: documentId },
+        transaction,
+      });
+
+      if (uploadId) {
+        await Upload.destroy({
+          where: { id: uploadId },
+          transaction,
+        });
+      }
+    });
+
+    await removeStoredFile(file);
+
+    return res.json({
+      message: "Important document deleted successfully",
+      documentId,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
 const markImportantDocumentAsRead = async (req, res) => {
   try {
     await cleanupExpiredImportantDocuments();
@@ -336,6 +427,7 @@ const markImportantDocumentAsRead = async (req, res) => {
 
 module.exports = {
   createImportantDocument,
+  deleteImportantDocument,
   listImportantDocuments,
   markImportantDocumentAsRead,
   uploadImportantDocumentSingle,

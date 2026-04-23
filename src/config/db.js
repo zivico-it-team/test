@@ -76,6 +76,15 @@ const runBootstrapMigrations = async () => {
     console.log("Users.role enum updated with hr");
   }
 
+  if (!userTable?.nic) {
+    await queryInterface.addColumn("users", "nic", {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: "",
+    });
+    console.log("Users.nic column added");
+  }
+
   const passwordResetTable = await queryInterface.describeTable("password_resets").catch(() => null);
   if (!passwordResetTable) {
     await queryInterface.createTable("password_resets", {

@@ -18,18 +18,62 @@ const toUserJson = (u) => {
   return o;
 };
 
+const normalizeText = (value) => String(value || "").trim().toLowerCase();
+
+const getDepartmentScopeForManager = (viewer) => {
+  if (normalizeText(viewer?.role) !== "manager") {
+    return null;
+  }
+
+  const professional = toPlainObject(viewer?.professional, {});
+  const department = normalizeText(professional.department);
+  const teamName = normalizeText(professional.teamName);
+  const values = [department, teamName].filter(Boolean);
+
+  return {
+    isScoped: true,
+    values: new Set(values),
+    label: professional.department || professional.teamName || "",
+  };
+};
+
+const userMatchesDepartmentScope = (user, scope) => {
+  if (!scope?.isScoped) {
+    return true;
+  }
+
+  if (!scope.values.size) {
+    return false;
+  }
+
+  const professional = toPlainObject(user?.professional, {});
+  const values = [professional.department, professional.teamName, user?.department]
+    .map(normalizeText)
+    .filter(Boolean);
+
+  return values.some((value) => scope.values.has(value));
+};
+
+const buildScopePayload = (scope) =>
+  scope?.isScoped ? { type: "department", label: scope.label } : null;
+
 // GET /api/team/stats
 const teamStats = async (req, res) => {
   try {
     const today = new Date();
     const dateKey = getDateKey(today);
+    const departmentScope = getDepartmentScopeForManager(req.user);
 
     const employees = (
       await User.findAll({
         where: { role: "employee" },
         attributes: ["id", "professional"],
       })
-    ).filter((employee) => matchesEmploymentStatus(employee, "active"));
+    ).filter(
+      (employee) =>
+        matchesEmploymentStatus(employee, "active") &&
+        userMatchesDepartmentScope(employee, departmentScope)
+    );
     const activeEmployeeIds = new Set(employees.map((employee) => employee.id));
     const totalMembers = employees.length;
 
@@ -66,7 +110,13 @@ const teamStats = async (req, res) => {
       return jd && !Number.isNaN(jd.getTime()) && jd >= thirtyDaysAgo;
     }).length;
 
-    res.json({ totalMembers, activeNow, onLeave, newJoiners });
+    res.json({
+      totalMembers,
+      activeNow,
+      onLeave,
+      newJoiners,
+      scope: buildScopePayload(departmentScope),
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -86,6 +136,7 @@ const teamMembers = async (req, res) => {
 
     const today = new Date();
     const dateKey = getDateKey(today);
+    const departmentScope = getDepartmentScopeForManager(req.user);
 
     const p = Math.max(1, Number(page));
     const l = Math.min(100, Math.max(1, Number(limit)));
@@ -97,14 +148,16 @@ const teamMembers = async (req, res) => {
 
     let list = allEmployees
       .filter((u) => matchesEmploymentStatus(u, "active"))
-      .map((u) => toUserJson(u));
+      .map((u) => toUserJson(u))
+      .filter((u) => userMatchesDepartmentScope(u, departmentScope));
 
     // team filter
     if (team) {
+      const normalizedTeam = normalizeText(team);
       list = list.filter((u) => {
-        const t1 = u?.professional?.teamName || "";
-        const t2 = u?.professional?.department || "";
-        return t1 === team || t2 === team;
+        const t1 = normalizeText(u?.professional?.teamName);
+        const t2 = normalizeText(u?.professional?.department);
+        return t1 === normalizedTeam || t2 === normalizedTeam;
       });
     }
 
@@ -167,7 +220,13 @@ const teamMembers = async (req, res) => {
     const start = (p - 1) * l;
     const members = list.slice(start, start + l);
 
-    res.json({ page: p, limit: l, total, members });
+    res.json({
+      page: p,
+      limit: l,
+      total,
+      members,
+      scope: buildScopePayload(departmentScope),
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -191,13 +250,18 @@ const managersList = async (req, res) => {
 // GET /api/team/teams
 const teamsList = async (req, res) => {
   try {
+    const departmentScope = getDepartmentScopeForManager(req.user);
     const employees = await User.findAll({
       where: { role: "employee" },
       attributes: ["professional"],
     });
 
     const set = new Set();
-    for (const e of employees.filter((employee) => matchesEmploymentStatus(employee, "active"))) {
+    for (const e of employees.filter(
+      (employee) =>
+        matchesEmploymentStatus(employee, "active") &&
+        userMatchesDepartmentScope(employee, departmentScope)
+    )) {
       const p = e.professional || {};
       if (p.teamName) set.add(p.teamName);
       if (p.department) set.add(p.department);
