@@ -45,6 +45,7 @@ exports.updateMyProfile = async (req, res, next) => {
       "email",
       "phone",
       "dob",
+      "nic",
       "gender",
       "nationality",
       "addressLine",
@@ -91,6 +92,10 @@ exports.updateMyProfile = async (req, res, next) => {
         }
       }
       updateDoc.email = normalizedEmail;
+    }
+
+    if (updateDoc.nic !== undefined) {
+      updateDoc.nic = String(updateDoc.nic || "").trim();
     }
 
     if (req.body?.professional !== undefined) {

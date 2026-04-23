@@ -47,6 +47,46 @@ const safeUser = (u) => {
   return o;
 };
 
+const normalizeText = (value) => String(value || "").trim().toLowerCase();
+
+const getDepartmentScopeForManager = (viewer) => {
+  if (normalizeText(viewer?.role) !== "manager") {
+    return null;
+  }
+
+  const professional = toPlainObject(viewer?.professional, {});
+  const department = normalizeText(professional.department);
+  const teamName = normalizeText(professional.teamName);
+  const values = [department, teamName].filter(Boolean);
+
+  return {
+    isScoped: true,
+    values: new Set(values),
+    label: professional.department || professional.teamName || "",
+  };
+};
+
+const employeeMatchesDepartmentScope = (employee, scope) => {
+  if (!scope?.isScoped) {
+    return true;
+  }
+
+  if (!scope.values.size) {
+    return false;
+  }
+
+  const professional = toPlainObject(employee?.professional, {});
+  const employeeValues = [
+    professional.department,
+    professional.teamName,
+    employee?.department,
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+
+  return employeeValues.some((value) => scope.values.has(value));
+};
+
 const getStatusLabel = (code) => {
   switch (code) {
     case "P":
@@ -190,12 +230,19 @@ const buildBreakMap = (activities) => {
   return breakMap;
 };
 
-const buildMonthlyTrackerData = async ({ year, month, search, employmentStatus = "active" }) => {
+const buildMonthlyTrackerData = async ({
+  year,
+  month,
+  search,
+  employmentStatus = "active",
+  viewer = null,
+}) => {
   const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
   const end = new Date(year, month, 0, 23, 59, 59, 999);
   const dim = daysInMonth(year, month);
   const todayKey = toDateKey(new Date());
   const employmentStatusFilter = normalizeEmploymentStatusFilter(employmentStatus, "active");
+  const departmentScope = getDepartmentScopeForManager(viewer);
 
   const allEmployees = await User.findAll({
     where: { role: "employee" },
@@ -211,6 +258,10 @@ const buildMonthlyTrackerData = async ({ year, month, search, employmentStatus =
       return false;
     }
 
+    if (!employeeMatchesDepartmentScope(user, departmentScope)) {
+      return false;
+    }
+
     if (!search) {
       return true;
     }
@@ -221,6 +272,7 @@ const buildMonthlyTrackerData = async ({ year, month, search, employmentStatus =
       user.userName,
       professional.employeeId,
       professional.department,
+      professional.teamName,
       professional.designation,
     ]
       .filter(Boolean)
@@ -232,7 +284,15 @@ const buildMonthlyTrackerData = async ({ year, month, search, employmentStatus =
   const empIds = employees.map((u) => u.id);
 
   if (empIds.length === 0) {
-    return { year, month, rows: [], detailRows: [] };
+    return {
+      year,
+      month,
+      rows: [],
+      detailRows: [],
+      scope: departmentScope?.isScoped
+        ? { type: "department", label: departmentScope.label }
+        : null,
+    };
   }
 
   const [atts, leaves, activities] = await Promise.all([
@@ -410,7 +470,15 @@ const buildMonthlyTrackerData = async ({ year, month, search, employmentStatus =
     };
   });
 
-  return { year, month, rows, detailRows };
+  return {
+    year,
+    month,
+    rows,
+    detailRows,
+    scope: departmentScope?.isScoped
+      ? { type: "department", label: departmentScope.label }
+      : null,
+  };
 };
 
 /**
@@ -426,8 +494,14 @@ const monthlyGrid = async (req, res) => {
     if (!year || !month || month < 1 || month > 12) {
       return res.status(400).json({ message: "year and month required (month 1-12)" });
     }
-    const { rows } = await buildMonthlyTrackerData({ year, month, search, employmentStatus });
-    res.json({ year, month, rows });
+    const { rows, scope } = await buildMonthlyTrackerData({
+      year,
+      month,
+      search,
+      employmentStatus,
+      viewer: req.user,
+    });
+    res.json({ year, month, rows, scope });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -447,7 +521,13 @@ const monthlyExport = async (req, res) => {
       return res.status(400).json({ message: "year and month required (month 1-12)" });
     }
 
-    const data = await buildMonthlyTrackerData({ year, month, search, employmentStatus });
+    const data = await buildMonthlyTrackerData({
+      year,
+      month,
+      search,
+      employmentStatus,
+      viewer: req.user,
+    });
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -468,8 +548,17 @@ const dayDetails = async (req, res) => {
 
     const dk = toDateKey(dt);
 
-    const [emp, att, acts, leave] = await Promise.all([
-      User.findByPk(userId, { attributes: ["id", "name", "email", "userName"] }),
+    const emp = await User.findByPk(userId, {
+      attributes: ["id", "name", "email", "userName", "professional"],
+    });
+
+    if (!emp) return res.status(404).json({ message: "Employee not found" });
+
+    if (!employeeMatchesDepartmentScope(emp.toJSON(), getDepartmentScopeForManager(req.user))) {
+      return res.status(403).json({ message: "Access denied for this employee attendance" });
+    }
+
+    const [att, acts, leave] = await Promise.all([
       Attendance.findOne({
         where: { userId, dateKey: dk },
         attributes: ["checkInAt", "checkOutAt", "totalWorkedSeconds", "isLate"],
@@ -489,8 +578,6 @@ const dayDetails = async (req, res) => {
         attributes: ["id", "type", "fromDate", "toDate", "reason"],
       }),
     ]);
-
-    if (!emp) return res.status(404).json({ message: "Employee not found" });
 
     const breakSummary = buildBreakMap(
       acts.map((activity) => ({

@@ -29,6 +29,7 @@ const User = sequelize.define(
 
     phone: { type: DataTypes.STRING(30), allowNull: true, defaultValue: "" },
     dob: { type: DataTypes.DATE, allowNull: true },
+    nic: { type: DataTypes.STRING(20), allowNull: true, defaultValue: "" },
     gender: {
       type: DataTypes.ENUM("Male", "Female", "Other", "Not specified"),
       allowNull: false,
