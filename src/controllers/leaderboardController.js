@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const LeaderboardPerformance = require("../models/LeaderboardPerformance");
+const { matchesEmploymentStatus } = require("../utils/employmentStatus");
 
 const toNumber = (value, fallback = 0) => {
   const n = Number(value);
@@ -71,6 +72,7 @@ const listLeaderboard = async (_req, res) => {
 
     const items = employees
       .map((employee) => employee.toJSON())
+      .filter((employee) => matchesEmploymentStatus(employee, "active"))
       .filter(isSalesEmployee)
       .map((employee) => {
         const perf = perfMap.get(String(employee.id)) || {};

@@ -2,6 +2,7 @@ const { Op } = require("sequelize");
 const Upload = require("../models/Upload");
 const FileShare = require("../models/FileShare");
 const User = require("../models/User");
+const { matchesEmploymentStatus } = require("../utils/employmentStatus");
 
 const isUUID = (id) =>
   typeof id === "string" &&
@@ -127,11 +128,13 @@ const getFileShare = async (req, res) => {
         })
       : [];
 
-    s.sharedWith = sharedWithUsers.map((u) => {
-      const o = u.toJSON();
-      o._id = o.id;
-      return o;
-    });
+    s.sharedWith = sharedWithUsers
+      .filter((u) => matchesEmploymentStatus(u, "active"))
+      .map((u) => {
+        const o = u.toJSON();
+        o._id = o.id;
+        return o;
+      });
 
     if (share.sharedBy) {
       s.sharedBy = { ...share.sharedBy.toJSON(), _id: share.sharedBy.id };
@@ -171,11 +174,13 @@ const listPeople = async (req, res) => {
     });
 
     res.json({
-      users: users.map((u) => {
-        const o = u.toJSON();
-        o._id = o.id;
-        return o;
-      }),
+      users: users
+        .filter((u) => matchesEmploymentStatus(u, "active"))
+        .map((u) => {
+          const o = u.toJSON();
+          o._id = o.id;
+          return o;
+        }),
     });
   } catch (err) {
     res.status(500).json({ message: err.message });

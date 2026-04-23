@@ -9,6 +9,7 @@ const Upload = require("../models/Upload");
 const User = require("../models/User");
 const { sequelize } = require("../config/db");
 const { uploadsDir, uploadsRoute } = require("../config/uploads");
+const { matchesEmploymentStatus } = require("../utils/employmentStatus");
 const {
   IMPORTANT_DOCUMENT_MODULE,
   IMPORTANT_DOCUMENT_TYPE,
@@ -202,13 +203,14 @@ const createImportantDocument = async (req, res) => {
             [Op.in]: ["employee", "manager"],
           },
         },
-        attributes: ["id", "role", "approvalStatus"],
+        attributes: ["id", "role", "approvalStatus", "professional"],
         transaction,
       });
 
       const recipientNotifications = viewers
         .filter((viewer) => {
           const role = String(viewer.role || "").trim().toLowerCase();
+          if (!matchesEmploymentStatus(viewer, "active")) return false;
           if (role === "manager") return true;
           return String(viewer.approvalStatus || "approved").trim().toLowerCase() === "approved";
         })

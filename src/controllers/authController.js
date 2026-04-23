@@ -5,6 +5,7 @@ const { Op } = require("sequelize");
 const PasswordReset = require("../models/PasswordReset");
 const generateToken = require("../utils/generateToken");
 const { toPublicUser } = require("../utils/userNormalizer");
+const { isInactiveUser } = require("../utils/employmentStatus");
 const { sendPasswordResetEmail } = require("../services/emailService");
 
 const RESET_TOKEN_EXPIRY_MINUTES = Number(process.env.RESET_TOKEN_EXPIRES_MINUTES || 15);
@@ -57,6 +58,9 @@ const login = async (req, res) => {
     if (!isMatch) return res.status(401).json({ message: "Invalid password" });
     if (isPendingEmployee(user)) {
       return res.status(403).json({ message: "Your account is waiting for admin approval" });
+    }
+    if (isInactiveUser(user)) {
+      return res.status(403).json({ message: "Your account has been deactivated. Please contact HR or admin." });
     }
 
     res.json(toSessionUser(user));

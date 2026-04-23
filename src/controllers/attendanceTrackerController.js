@@ -3,6 +3,14 @@ const Attendance = require("../models/Attendance");
 const Activity = require("../models/Activity");
 const Leave = require("../models/Leave");
 const User = require("../models/User");
+const { toPlainObject } = require("../utils/userNormalizer");
+const {
+  getAppointmentDate,
+  getEmploymentStatus,
+  getResignedDate,
+  matchesEmploymentStatus,
+  normalizeEmploymentStatusFilter,
+} = require("../utils/employmentStatus");
 
 // helpers
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -72,6 +80,11 @@ const getActivityDurationSeconds = (activity) => {
 };
 
 const getEmployeeAttendanceStartDate = (employee) => {
+  const appointmentDate = getAppointmentDate(employee);
+  if (appointmentDate) {
+    return startOfDay(appointmentDate);
+  }
+
   const rawCreatedAt = employee?.createdAt || employee?.created_at || null;
   const createdDate = rawCreatedAt ? new Date(rawCreatedAt) : null;
   if (!createdDate || Number.isNaN(createdDate.getTime())) {
@@ -80,11 +93,17 @@ const getEmployeeAttendanceStartDate = (employee) => {
   return startOfDay(createdDate);
 };
 
+const getEmployeeAttendanceEndDate = (employee) => {
+  const resignedDate = getResignedDate(employee);
+  return resignedDate ? startOfDay(resignedDate) : null;
+};
+
 const getTrackedDayWindow = ({
   year,
   month,
   dim,
   startDate,
+  endDate,
   today = new Date(),
   includeFutureMonths = false,
 }) => {
@@ -102,8 +121,16 @@ const getTrackedDayWindow = ({
     return { startDay: 0, endDay: 0 };
   }
 
+  if (endDate && endDate.getFullYear() === year && endDate.getMonth() + 1 === month) {
+    endDay = Math.min(endDay, endDate.getDate());
+  }
+
+  const monthStart = startOfDay(new Date(year, month - 1, 1));
   const monthEnd = startOfDay(new Date(year, month - 1, endDay));
-  if (startDate && startDate.getTime() > monthEnd.getTime()) {
+  if (
+    (startDate && startDate.getTime() > monthEnd.getTime()) ||
+    (endDate && endDate.getTime() < monthStart.getTime())
+  ) {
     return { startDay: 0, endDay: 0 };
   }
 
@@ -163,24 +190,44 @@ const buildBreakMap = (activities) => {
   return breakMap;
 };
 
-const buildMonthlyTrackerData = async ({ year, month, search }) => {
+const buildMonthlyTrackerData = async ({ year, month, search, employmentStatus = "active" }) => {
   const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
   const end = new Date(year, month, 0, 23, 59, 59, 999);
   const dim = daysInMonth(year, month);
   const todayKey = toDateKey(new Date());
+  const employmentStatusFilter = normalizeEmploymentStatusFilter(employmentStatus, "active");
 
   const allEmployees = await User.findAll({
     where: { role: "employee" },
-    attributes: ["id", "name", "email", "userName", "createdAt"],
+    attributes: ["id", "name", "email", "userName", "professional", "createdAt"],
     order: [["name", "ASC"]],
   });
 
-  const employees = search
-    ? allEmployees.filter((u) => {
-        const s = `${u.name} ${u.email} ${u.userName}`.toLowerCase();
-        return s.includes(search);
-      })
-    : allEmployees;
+  const employees = allEmployees.filter((u) => {
+    const user = typeof u.toJSON === "function" ? u.toJSON() : u;
+    const professional = toPlainObject(user.professional, {});
+
+    if (!matchesEmploymentStatus(user, employmentStatusFilter)) {
+      return false;
+    }
+
+    if (!search) {
+      return true;
+    }
+
+    const s = [
+      user.name,
+      user.email,
+      user.userName,
+      professional.employeeId,
+      professional.department,
+      professional.designation,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return s.includes(search);
+  });
 
   const empIds = employees.map((u) => u.id);
 
@@ -248,13 +295,18 @@ const buildMonthlyTrackerData = async ({ year, month, search }) => {
   const detailRows = [];
 
   const rows = employees.map((emp) => {
-    const uid = emp.id;
-    const employeeStartDate = getEmployeeAttendanceStartDate(emp);
+    const employee = typeof emp.toJSON === "function" ? emp.toJSON() : emp;
+    const professional = toPlainObject(employee.professional, {});
+    const uid = employee.id;
+    const employeeStartDate = getEmployeeAttendanceStartDate(employee);
+    const employeeEndDate = getEmployeeAttendanceEndDate(employee);
+    const employeeStatus = getEmploymentStatus(employee);
     const { startDay: trackedStartDay, endDay: trackedLastDay } = getTrackedDayWindow({
       year,
       month,
       dim,
       startDate: employeeStartDate,
+      endDate: employeeEndDate,
       includeFutureMonths: true,
     });
     const days = {};
@@ -308,9 +360,15 @@ const buildMonthlyTrackerData = async ({ year, month, search }) => {
 
       detailRows.push({
         userId: uid,
-        name: emp.name,
-        email: emp.email,
-        userName: emp.userName,
+        name: employee.name,
+        email: employee.email,
+        userName: employee.userName,
+        employeeId: professional.employeeId || "",
+        department: professional.department || "",
+        designation: professional.designation || "",
+        employmentStatus: employeeStatus,
+        appointmentDate: professional.appointmentDate || null,
+        resignedDate: professional.resignedDate || null,
         dateKey: dk,
         statusCode,
         statusLabel: getStatusLabel(statusCode),
@@ -335,9 +393,15 @@ const buildMonthlyTrackerData = async ({ year, month, search }) => {
 
     return {
       userId: uid,
-      name: emp.name,
-      email: emp.email,
-      userName: emp.userName,
+      name: employee.name,
+      email: employee.email,
+      userName: employee.userName,
+      employeeId: professional.employeeId || "",
+      department: professional.department || "",
+      designation: professional.designation || "",
+      employmentStatus: employeeStatus,
+      appointmentDate: professional.appointmentDate || null,
+      resignedDate: professional.resignedDate || null,
       days,
       P,
       A,
@@ -357,11 +421,12 @@ const monthlyGrid = async (req, res) => {
     const year = Number(req.query.year);
     const month = Number(req.query.month); // 1-12
     const search = (req.query.search || "").trim().toLowerCase();
+    const employmentStatus = normalizeEmploymentStatusFilter(req.query.employmentStatus, "active");
 
     if (!year || !month || month < 1 || month > 12) {
       return res.status(400).json({ message: "year and month required (month 1-12)" });
     }
-    const { rows } = await buildMonthlyTrackerData({ year, month, search });
+    const { rows } = await buildMonthlyTrackerData({ year, month, search, employmentStatus });
     res.json({ year, month, rows });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -376,12 +441,13 @@ const monthlyExport = async (req, res) => {
     const year = Number(req.query.year);
     const month = Number(req.query.month);
     const search = (req.query.search || "").trim().toLowerCase();
+    const employmentStatus = normalizeEmploymentStatusFilter(req.query.employmentStatus, "active");
 
     if (!year || !month || month < 1 || month > 12) {
       return res.status(400).json({ message: "year and month required (month 1-12)" });
     }
 
-    const data = await buildMonthlyTrackerData({ year, month, search });
+    const data = await buildMonthlyTrackerData({ year, month, search, employmentStatus });
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });

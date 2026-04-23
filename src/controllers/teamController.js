@@ -3,6 +3,7 @@ const User = require("../models/User");
 const Attendance = require("../models/Attendance");
 const Leave = require("../models/Leave");
 const { toPublicUser, toPlainObject } = require("../utils/userNormalizer");
+const { matchesEmploymentStatus } = require("../utils/employmentStatus");
 
 const getDateKey = (d = new Date()) => {
   const yyyy = d.getFullYear();
@@ -23,7 +24,14 @@ const teamStats = async (req, res) => {
     const today = new Date();
     const dateKey = getDateKey(today);
 
-    const totalMembers = await User.count({ where: { role: "employee" } });
+    const employees = (
+      await User.findAll({
+        where: { role: "employee" },
+        attributes: ["id", "professional"],
+      })
+    ).filter((employee) => matchesEmploymentStatus(employee, "active"));
+    const activeEmployeeIds = new Set(employees.map((employee) => employee.id));
+    const totalMembers = employees.length;
 
     const activeAttendances = await Attendance.findAll({
       where: {
@@ -35,9 +43,7 @@ const teamStats = async (req, res) => {
     });
     const activeIds = [...new Set(activeAttendances.map((a) => a.userId))];
 
-    const activeNow = activeIds.length
-      ? await User.count({ where: { role: "employee", id: { [Op.in]: activeIds } } })
-      : 0;
+    const activeNow = activeIds.filter((id) => activeEmployeeIds.has(id)).length;
 
     const onLeaveLeaves = await Leave.findAll({
       where: {
@@ -49,18 +55,11 @@ const teamStats = async (req, res) => {
     });
     const onLeaveIds = [...new Set(onLeaveLeaves.map((l) => l.userId))];
 
-    const onLeave = onLeaveIds.length
-      ? await User.count({ where: { role: "employee", id: { [Op.in]: onLeaveIds } } })
-      : 0;
+    const onLeave = onLeaveIds.filter((id) => activeEmployeeIds.has(id)).length;
 
     // New joiners = professional.joiningDate last 30 days (JS filter because joiningDate is inside JSON)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const employees = await User.findAll({
-      where: { role: "employee" },
-      attributes: ["id", "professional"],
-    });
 
     const newJoiners = employees.filter((u) => {
       const jd = u.professional?.joiningDate ? new Date(u.professional.joiningDate) : null;
@@ -96,7 +95,9 @@ const teamMembers = async (req, res) => {
       attributes: { exclude: ["password"] },
     });
 
-    let list = allEmployees.map((u) => toUserJson(u));
+    let list = allEmployees
+      .filter((u) => matchesEmploymentStatus(u, "active"))
+      .map((u) => toUserJson(u));
 
     // team filter
     if (team) {
@@ -196,7 +197,7 @@ const teamsList = async (req, res) => {
     });
 
     const set = new Set();
-    for (const e of employees) {
+    for (const e of employees.filter((employee) => matchesEmploymentStatus(employee, "active"))) {
       const p = e.professional || {};
       if (p.teamName) set.add(p.teamName);
       if (p.department) set.add(p.department);

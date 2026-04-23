@@ -18,6 +18,8 @@ const {
   normalizeProfessional,
   normalizeStoredImageUrl,
 } = require("../utils/userNormalizer");
+const { matchesEmploymentStatus, normalizeEmploymentStatusFilter } = require("../utils/employmentStatus");
+const { clearCachedUser } = require("../middleware/authMiddleware");
 
 const normalizeOptionalEmail = (email) => {
   const normalized = String(email || "").trim().toLowerCase();
@@ -601,6 +603,7 @@ const getEmployees = async (req, res) => {
   try {
     const approvalStatus = normalizeApprovalStatus(req.query?.approvalStatus, "approved");
     const requestedStatus = String(req.query?.approvalStatus || "approved").trim().toLowerCase();
+    const employmentStatusFilter = normalizeEmploymentStatusFilter(req.query?.employmentStatus, "active");
     const where = { role: "employee" };
 
     if (requestedStatus !== "all") {
@@ -615,7 +618,11 @@ const getEmployees = async (req, res) => {
       attributes: { exclude: ["password"] },
       order: [["createdAt", "DESC"]],
     });
-    res.json(employees.map(toPublicUser));
+    res.json(
+      employees
+        .filter((employee) => matchesEmploymentStatus(employee, employmentStatusFilter))
+        .map(toPublicUser)
+    );
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -738,6 +745,7 @@ const updateEmployee = async (req, res) => {
     }
 
     await employee.update(update);
+    clearCachedUser(id);
 
     const updated = await User.findByPk(id, { attributes: { exclude: ["password"] } });
     res.json(toPublicUser(updated));
