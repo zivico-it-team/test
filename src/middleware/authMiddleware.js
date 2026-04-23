@@ -1,9 +1,10 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { toPlainObject } = require("../utils/userNormalizer");
+const { isInactiveUser } = require("../utils/employmentStatus");
 
 const normalizeValue = (value) => String(value || "").trim().toLowerCase();
-const AUTH_CACHE_TTL_MS = Number(process.env.AUTH_USER_CACHE_TTL_MS || 60000);
+const AUTH_CACHE_TTL_MS = Number(process.env.AUTH_USER_CACHE_TTL_MS || 0);
 const AUTH_CACHE_MAX_USERS = Number(process.env.AUTH_USER_CACHE_MAX_USERS || 500);
 const AUTH_USER_CACHE_KEY = "__zivico_auth_user_cache__";
 const authUserCache = globalThis[AUTH_USER_CACHE_KEY] || new Map();
@@ -43,6 +44,11 @@ const setCachedUser = (userId, user) => {
     user,
     expiresAt: Date.now() + AUTH_CACHE_TTL_MS,
   });
+};
+
+const clearCachedUser = (userId) => {
+  if (!userId) return;
+  authUserCache.delete(String(userId));
 };
 
 const isHRStaff = (user) => {
@@ -106,6 +112,10 @@ const protect = async (req, res, next) => {
       return res.status(403).json({ message: "Your account is awaiting admin approval" });
     }
 
+    if (isInactiveUser(user) && !["admin", "hr"].includes(normalizeValue(user.role))) {
+      return res.status(403).json({ message: "Your account has been deactivated. Please contact HR or admin." });
+    }
+
     req.user = {
       ...user,
       role: normalizeValue(user.role),
@@ -164,4 +174,4 @@ const forbidHRLeadAccess = (req, res, next) => {
   return next();
 };
 
-module.exports = { authorize, authorizeAdminOrHR, isHRStaff, forbidHRLeadAccess, protect };
+module.exports = { authorize, authorizeAdminOrHR, clearCachedUser, isHRStaff, forbidHRLeadAccess, protect };

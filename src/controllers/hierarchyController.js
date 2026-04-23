@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const { toPublicUser } = require("../utils/userNormalizer");
+const { matchesEmploymentStatus } = require("../utils/employmentStatus");
 
 const parseProfessional = (value) => {
   if (value && typeof value === "object" && !Array.isArray(value)) return value;
@@ -149,7 +150,9 @@ const hierarchyOverview = async (req, res) => {
         "updatedAt",
       ],
       order: [["name", "ASC"]],
-    })).map((x) => x.toJSON());
+    }))
+      .map((x) => x.toJSON())
+      .filter((user) => matchesEmploymentStatus(user, "active"));
 
     // ---- Top roles (for employee view only) ----
     const ceo = users.find(isCEO) || null;

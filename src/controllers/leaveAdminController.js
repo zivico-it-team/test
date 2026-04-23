@@ -1,6 +1,7 @@
 const { Op } = require("sequelize");
 const Leave = require("../models/Leave");
 const User = require("../models/User");
+const { matchesEmploymentStatus } = require("../utils/employmentStatus");
 
 const LEGACY_POLICY_TOTALS = {
   annual: 21,
@@ -155,7 +156,8 @@ const adminEmployeeLeaveBalances = async (req, res) => {
       order: [["name", "ASC"]],
     });
 
-    const employeeIds = employees.map((employee) => employee.id).filter(Boolean);
+    const activeEmployees = employees.filter((employee) => matchesEmploymentStatus(employee, "active"));
+    const employeeIds = activeEmployees.map((employee) => employee.id).filter(Boolean);
     const approvedLeaves = employeeIds.length
       ? await Leave.findAll({
           where: {
@@ -183,7 +185,7 @@ const adminEmployeeLeaveBalances = async (req, res) => {
       approvedUsageByEmployee.set(leave.userId, employeeUsage);
     }
 
-    const rows = employees.map((employeeRecord) => {
+    const rows = activeEmployees.map((employeeRecord) => {
       const employee =
         typeof employeeRecord.toJSON === "function" ? employeeRecord.toJSON() : employeeRecord;
       const professional = toPlainObject(employee.professional, {});

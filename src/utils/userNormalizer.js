@@ -64,6 +64,11 @@ const normalizeProfessional = (value) => {
   };
 };
 
+const normalizeEmploymentStatus = (value) =>
+  String(value || "active").trim().toLowerCase() === "inactive"
+    ? "inactive"
+    : "active";
+
 const toPublicUser = (user) => {
   if (!user) return null;
 
@@ -75,6 +80,9 @@ const toPublicUser = (user) => {
       ? String(obj.approvalStatus || "approved").trim().toLowerCase() || "approved"
       : "approved";
   const professional = normalizeProfessional(obj.professional);
+  const employmentStatus = normalizeEmploymentStatus(
+    professional.employmentStatus || obj.employmentStatus || obj.status,
+  );
   const imagePath = normalizeStoredImageUrl(obj.profileImageUrl);
   const profileImageVersion = obj.updatedAt ? new Date(obj.updatedAt).getTime() : null;
 
@@ -89,6 +97,8 @@ const toPublicUser = (user) => {
     skills: toPlainArray(obj.skills, []),
     bank: toPlainObject(obj.bank, {}),
     emergencyContact: toPlainObject(obj.emergencyContact, {}),
+    employmentStatus,
+    status: employmentStatus,
     approvalStatus,
     approvedAt: obj.approvedAt || null,
     profileImageUrl: imagePath,

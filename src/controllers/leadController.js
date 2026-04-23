@@ -9,6 +9,7 @@ const {
   normalizeStoredImageUrl,
   normalizeProfessional,
 } = require("../utils/userNormalizer");
+const { matchesEmploymentStatus } = require("../utils/employmentStatus");
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const toInt = (value, fallback) => {
@@ -1453,6 +1454,7 @@ const getAssignEmployees = async (_req, res) => {
             designation: professional.designation || "",
           };
         })
+        .filter((employee) => matchesEmploymentStatus(employee, "active"))
         .filter(isSalesDepartmentEmployee),
     });
   } catch (err) {
