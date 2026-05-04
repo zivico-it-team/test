@@ -18,6 +18,7 @@ const {
   getImportantDocumentRouteForRole,
   removeStoredFile,
 } = require("../services/importantDocumentsService");
+const { isAdminLikeRole } = require("../utils/roleUtils");
 
 const IMPORTANT_DOCUMENT_ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
@@ -72,7 +73,7 @@ const removeUploadedFileIfExists = async (file = {}) => {
 
 const isAdminOrHr = (role = "") => {
   const normalizedRole = String(role || "").trim().toLowerCase();
-  return normalizedRole === "admin" || normalizedRole === "hr";
+  return isAdminLikeRole(normalizedRole) || normalizedRole === "hr";
 };
 
 const toImportantDocumentJson = (document, options = {}) => {

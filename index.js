@@ -10,7 +10,7 @@ const swaggerUi = require("swagger-ui-express");
 
 const { connectDB } = require("./src/config/db");
 const { uploadsDir, uploadsRoute } = require("./src/config/uploads");
-const seedAdmin = require("./src/config/seedAdmin");
+const seedSystemUsers = require("./src/config/seedAdmin");
 const swaggerSpec = require("./src/config/swagger");
 
 const app = express();
@@ -167,7 +167,7 @@ const listenOnce = (suffix = "") => {
 const startServer = async () => {
   try {
     await connectDB();
-    await seedAdmin();
+    await seedSystemUsers();
     listenOnce();
   } catch (error) {
     if (isMysqlConnectionQuotaError(error)) {

@@ -2,6 +2,7 @@ const { Op } = require("sequelize");
 const Leave = require("../models/Leave");
 const User = require("../models/User");
 const { matchesEmploymentStatus } = require("../utils/employmentStatus");
+const { isAdminLikeRole } = require("../utils/roleUtils");
 
 const LEGACY_POLICY_TOTALS = {
   annual: 21,
@@ -107,7 +108,7 @@ const buildUserPolicyBalances = (user = {}) => {
     }
   }
 
-  if ((user?.role === "admin" || user?.role === "manager") && !hasConfiguredTypes) {
+  if ((isAdminLikeRole(user?.role) || user?.role === "manager") && !hasConfiguredTypes) {
     return Object.fromEntries(
       Object.entries(LEGACY_POLICY_TOTALS).map(([typeKey, total]) => [
         typeKey,

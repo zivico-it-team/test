@@ -20,10 +20,69 @@ const {
 } = require("../utils/userNormalizer");
 const { matchesEmploymentStatus, normalizeEmploymentStatusFilter } = require("../utils/employmentStatus");
 const { clearCachedUser } = require("../middleware/authMiddleware");
+const { isAdminLikeRole, normalizeRole } = require("../utils/roleUtils");
+
+const MANAGER_LIKE_ROLES = ["manager", "master"];
+const STAFF_ACCOUNT_ROLES = ["employee", "manager", "master"];
+
+const isManagerLikeRole = (role) => MANAGER_LIKE_ROLES.includes(normalizeRole(role));
 
 const normalizeOptionalEmail = (email) => {
   const normalized = String(email || "").trim().toLowerCase();
   return normalized || null;
+};
+
+const normalizeUserNameCandidate = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._\-\s]/g, " ")
+    .replace(/\s+/g, ".")
+    .replace(/\.{2,}/g, ".")
+    .replace(/^[._-]+|[._-]+$/g, "");
+
+  if (!normalized) {
+    return "user";
+  }
+
+  if (normalized.length >= 3) {
+    return normalized.slice(0, 30);
+  }
+
+  return `${normalized}${"user".slice(normalized.length)}`.slice(0, 30);
+};
+
+const resolveUniqueUserName = async ({
+  userName,
+  name,
+  email,
+  excludeUserId,
+}) => {
+  const emailPrefix = String(email || "").trim().split("@")[0];
+  const baseUserName = normalizeUserNameCandidate(
+    userName || emailPrefix || name || "user",
+  );
+  const baseWhere = excludeUserId ? { id: { [Op.ne]: excludeUserId } } : {};
+  let candidate = baseUserName;
+  let suffix = 1;
+
+  while (true) {
+    const existingUser = await User.findOne({
+      where: {
+        ...baseWhere,
+        userName: candidate,
+      },
+      attributes: ["id"],
+    });
+
+    if (!existingUser) {
+      return candidate;
+    }
+
+    const nextSuffix = `.${suffix}`;
+    candidate = `${baseUserName.slice(0, Math.max(3, 30 - nextSuffix.length))}${nextSuffix}`;
+    suffix += 1;
+  }
 };
 
 const sanitizeStoredImageUrl = (value) => {
@@ -343,9 +402,15 @@ const purgeUserRecords = async (userId, transaction) => {
 };
 
 const deleteUserWithDependencies = async ({ id, role }) => {
+  const roles = Array.isArray(role)
+    ? role.map((item) => normalizeRole(item)).filter(Boolean)
+    : [normalizeRole(role)].filter(Boolean);
+  const roleWhere =
+    roles.length > 1 ? { [Op.in]: roles } : roles[0];
+
   return sequelize.transaction(async (transaction) => {
     const user = await User.findOne({
-      where: { id, role },
+      where: { id, role: roleWhere },
       transaction,
     });
 
@@ -363,9 +428,18 @@ const deleteUserWithDependencies = async ({ id, role }) => {
 const addManager = async (req, res) => {
   try {
     const { name, userName, email, password, phone } = req.body;
+    const requestedRole = normalizeRole(req.body?.role || "manager");
 
     if (!name || !userName || !email || !password) {
       return res.status(400).json({ message: "name, userName, email and password are required" });
+    }
+
+    if (!isManagerLikeRole(requestedRole)) {
+      return res.status(400).json({ message: "Invalid role. Allowed roles: manager, master" });
+    }
+
+    if (requestedRole === "master" && !isAdminLikeRole(req.user?.role)) {
+      return res.status(403).json({ message: "Only admins or masters can create master users" });
     }
 
     const normalizedEmail = normalizeOptionalEmail(email);
@@ -377,7 +451,7 @@ const addManager = async (req, res) => {
       phone,
       userName,
       password: hashed,
-      role: "manager",
+      role: requestedRole,
       approvalStatus: "approved",
       approvedAt: new Date(),
       professional: extractProfessional(req.body),
@@ -407,17 +481,26 @@ const addManager = async (req, res) => {
 const addEmployee = async (req, res) => {
   try {
     const { name, userName, email, password, phone } = req.body;
-    const requestedRole = String(req.body?.role || "employee").trim().toLowerCase();
+    const requestedRole = normalizeRole(req.body?.role || "employee");
 
-    if (!name || !userName || !password) {
-      return res.status(400).json({ message: "name, userName and password are required" });
+    if (!name || !password) {
+      return res.status(400).json({ message: "name and password are required" });
     }
 
-    if (!["employee", "manager"].includes(requestedRole)) {
-      return res.status(400).json({ message: "Invalid role. Allowed roles: employee, manager" });
+    if (!STAFF_ACCOUNT_ROLES.includes(requestedRole)) {
+      return res.status(400).json({ message: "Invalid role. Allowed roles: employee, manager, master" });
+    }
+
+    if (requestedRole === "master" && !isAdminLikeRole(req.user?.role)) {
+      return res.status(403).json({ message: "Only admins or masters can create master users" });
     }
 
     const normalizedEmail = normalizeOptionalEmail(email);
+    const resolvedUserName = await resolveUniqueUserName({
+      userName,
+      name,
+      email: normalizedEmail,
+    });
 
     const hashed = await bcrypt.hash(password, 10);
 
@@ -425,7 +508,7 @@ const addEmployee = async (req, res) => {
       name,
       email: normalizedEmail,
       phone,
-      userName,
+      userName: resolvedUserName,
       password: hashed,
       role: requestedRole,
       approvalStatus: "approved",
@@ -457,7 +540,7 @@ const addEmployee = async (req, res) => {
 const getManagers = async (req, res) => {
   try {
     const managers = await User.findAll({
-      where: { role: "manager" },
+      where: { role: { [Op.in]: MANAGER_LIKE_ROLES } },
       attributes: { exclude: ["password"] },
       order: [["createdAt", "DESC"]],
     });
@@ -472,7 +555,7 @@ const getManagers = async (req, res) => {
 const getManagerById = async (req, res) => {
   try {
     const manager = await User.findOne({
-      where: { id: req.params.id, role: "manager" },
+      where: { id: req.params.id, role: { [Op.in]: MANAGER_LIKE_ROLES } },
       attributes: { exclude: ["password"] },
     });
 
@@ -510,12 +593,26 @@ const updateManager = async (req, res) => {
       "skills",
     ];
 
-    if (req.body.role && req.body.role !== "manager") {
-      return res.status(400).json({ message: "Role change not allowed here" });
+    if (req.body.role !== undefined) {
+      const nextRole = normalizeRole(req.body.role);
+
+      if (!isManagerLikeRole(nextRole)) {
+        return res.status(400).json({ message: "Invalid role. Allowed roles: manager, master" });
+      }
+
+      if (!isAdminLikeRole(req.user?.role)) {
+        return res.status(403).json({ message: "Only admins or masters can change leadership roles" });
+      }
     }
 
-    const manager = await User.findOne({ where: { id, role: "manager" } });
+    const manager = await User.findOne({
+      where: { id, role: { [Op.in]: MANAGER_LIKE_ROLES } },
+    });
     if (!manager) return res.status(404).json({ message: "Manager not found" });
+
+    if (normalizeRole(manager.role) === "master" && !isAdminLikeRole(req.user?.role)) {
+      return res.status(403).json({ message: "Only admins or masters can update master users" });
+    }
 
     const update = {};
     for (const key of allowed) {
@@ -531,6 +628,18 @@ const updateManager = async (req, res) => {
 
     if (req.body.email !== undefined) {
       update.email = normalizeOptionalEmail(req.body.email);
+    }
+
+    if (req.body.userName !== undefined) {
+      const requestedUserName = String(req.body.userName || "").trim();
+      update.userName = requestedUserName
+        ? await resolveUniqueUserName({
+            userName: requestedUserName,
+            name: req.body.name || manager.name,
+            email: req.body.email !== undefined ? req.body.email : manager.email,
+            excludeUserId: id,
+          })
+        : manager.userName;
     }
 
     if (
@@ -562,7 +671,12 @@ const updateManager = async (req, res) => {
       update.password = await bcrypt.hash(req.body.password, 10);
     }
 
+    if (req.body.role !== undefined) {
+      update.role = normalizeRole(req.body.role);
+    }
+
     await manager.update(update);
+    clearCachedUser(id);
 
     const updated = await User.findByPk(id, { attributes: { exclude: ["password"] } });
     res.json(toPublicUser(updated));
@@ -583,7 +697,19 @@ const deleteManager = async (req, res) => {
       return res.status(400).json({ success: false, message: "You can't delete your own account" });
     }
 
-    const result = await deleteUserWithDependencies({ id, role: "manager" });
+    const targetUser = await User.findOne({
+      where: { id, role: { [Op.in]: MANAGER_LIKE_ROLES } },
+      attributes: ["id", "role"],
+    });
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: "Manager not found" });
+    }
+
+    if (normalizeRole(targetUser.role) === "master" && !isAdminLikeRole(req.user?.role)) {
+      return res.status(403).json({ success: false, message: "Only admins or masters can delete master users" });
+    }
+
+    const result = await deleteUserWithDependencies({ id, role: MANAGER_LIKE_ROLES });
     if (!result.deleted) {
       return res.status(404).json({ success: false, message: "Manager not found" });
     }
@@ -623,6 +749,29 @@ const getEmployees = async (req, res) => {
         .filter((employee) => matchesEmploymentStatus(employee, employmentStatusFilter))
         .map(toPublicUser)
     );
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const getDashboardUsersSummary = async (req, res) => {
+  try {
+    const [totalUsers, hiddenUsers] = await Promise.all([
+      User.count({
+        where: {
+          role: { [Op.ne]: "master" },
+        },
+      }),
+      User.findAll({
+        where: { role: "master" },
+        attributes: ["id"],
+      }),
+    ]);
+
+    res.json({
+      totalUsers,
+      hiddenUserIds: hiddenUsers.map((user) => String(user.id || "")).filter(Boolean),
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -688,6 +837,18 @@ const updateEmployee = async (req, res) => {
       update.email = normalizeOptionalEmail(req.body.email);
     }
 
+    if (req.body.userName !== undefined) {
+      const requestedUserName = String(req.body.userName || "").trim();
+      update.userName = requestedUserName
+        ? await resolveUniqueUserName({
+            userName: requestedUserName,
+            name: req.body.name || employee.name,
+            email: req.body.email !== undefined ? req.body.email : employee.email,
+            excludeUserId: id,
+          })
+        : employee.userName;
+    }
+
     if (
       req.body.professional !== undefined ||
       req.body.employeeId !== undefined ||
@@ -718,15 +879,15 @@ const updateEmployee = async (req, res) => {
     }
 
     if (req.body.role !== undefined) {
-      const nextRole = String(req.body.role || "").trim().toLowerCase();
-      if (!["employee", "manager"].includes(nextRole)) {
-        return res.status(400).json({ message: "Invalid role. Allowed roles: employee, manager" });
+      const nextRole = normalizeRole(req.body.role);
+      if (!STAFF_ACCOUNT_ROLES.includes(nextRole)) {
+        return res.status(400).json({ message: "Invalid role. Allowed roles: employee, manager, master" });
       }
 
-      if (nextRole === "manager") {
-        const actorRole = String(req.user?.role || "").trim().toLowerCase();
-        if (actorRole !== "admin") {
-          return res.status(403).json({ message: "Only admin can convert employee to manager" });
+      if (nextRole === "manager" || nextRole === "master") {
+        const actorRole = normalizeRole(req.user?.role);
+        if (!isAdminLikeRole(actorRole)) {
+          return res.status(403).json({ message: `Only admins or masters can convert employee to ${nextRole}` });
         }
       }
 
@@ -734,9 +895,9 @@ const updateEmployee = async (req, res) => {
     }
 
     if (req.body.approvalStatus !== undefined) {
-      const actorRole = String(req.user?.role || "").trim().toLowerCase();
-      if (actorRole !== "admin") {
-        return res.status(403).json({ message: "Only admin can change employee access approval" });
+      const actorRole = normalizeRole(req.user?.role);
+      if (!isAdminLikeRole(actorRole)) {
+        return res.status(403).json({ message: "Only admins or masters can change employee access approval" });
       }
 
       const nextApprovalStatus = normalizeApprovalStatus(req.body.approvalStatus, "approved");
@@ -749,6 +910,59 @@ const updateEmployee = async (req, res) => {
 
     const updated = await User.findByPk(id, { attributes: { exclude: ["password"] } });
     res.json(toPublicUser(updated));
+  } catch (err) {
+    return handleAdminUserError(res, err);
+  }
+};
+
+const getRolePermissionUsers = async (req, res) => {
+  try {
+    const users = await User.findAll({
+      attributes: { exclude: ["password"] },
+      order: [["name", "ASC"]],
+    });
+
+    res.json(users.map(toPublicUser));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const updateUserRolePermissions = async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      return res.status(400).json({ message: "User id is required" });
+    }
+
+    const rolePermissions = toPlainObject(req.body?.rolePermissions, null);
+    if (!rolePermissions) {
+      return res.status(400).json({ message: "rolePermissions object is required" });
+    }
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const professional = toPlainObject(user.professional, {});
+    await user.update({
+      professional: {
+        ...professional,
+        rolePermissions,
+      },
+    });
+
+    clearCachedUser(id);
+
+    const updatedUser = await User.findByPk(id, {
+      attributes: { exclude: ["password"] },
+    });
+
+    return res.json({
+      message: "User role permissions updated successfully",
+      user: toPublicUser(updatedUser),
+    });
   } catch (err) {
     return handleAdminUserError(res, err);
   }
@@ -824,7 +1038,7 @@ const getAdminProfile = async (req, res) => {
   try {
     const admin = await User.findByPk(req.user._id, { attributes: { exclude: ["password"] } });
     if (!admin) return res.status(404).json({ message: "Admin not found" });
-    if (admin.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    if (!isAdminLikeRole(admin.role)) return res.status(403).json({ message: "Admin only" });
     res.json({ user: toPublicUser(admin) });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -838,7 +1052,7 @@ const updateAdminProfile = async (req, res) => {
 
     const admin = await User.findByPk(adminId);
     if (!admin) return res.status(404).json({ message: "Admin not found" });
-    if (admin.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    if (!isAdminLikeRole(admin.role)) return res.status(403).json({ message: "Admin only" });
 
     const allowed = [
       "name",
@@ -891,6 +1105,7 @@ const updateAdminProfile = async (req, res) => {
     }
 
     await admin.update(update);
+    clearCachedUser(adminId);
 
     const updated = await User.findByPk(adminId, { attributes: { exclude: ["password"] } });
     res.json({ message: "Profile updated", user: toPublicUser(updated) });
@@ -921,12 +1136,13 @@ const changeAdminPassword = async (req, res) => {
 
     const admin = await User.findByPk(adminId);
     if (!admin) return res.status(404).json({ message: "Admin not found" });
-    if (admin.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    if (!isAdminLikeRole(admin.role)) return res.status(403).json({ message: "Admin only" });
 
     const ok = await bcrypt.compare(currentPassword, admin.password);
     if (!ok) return res.status(400).json({ message: "Current password is incorrect" });
 
     await admin.update({ password: await bcrypt.hash(newPassword, 10) });
+    clearCachedUser(adminId);
 
     res.json({ message: "Password changed successfully" });
   } catch (err) {
@@ -944,6 +1160,9 @@ module.exports = {
   deleteManager,
 
   getEmployees,
+  getDashboardUsersSummary,
+  getRolePermissionUsers,
+  updateUserRolePermissions,
   getEmployeeById,
   updateEmployee,
   deleteEmployee,

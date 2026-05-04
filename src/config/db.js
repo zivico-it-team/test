@@ -67,13 +67,13 @@ const runBootstrapMigrations = async () => {
     console.log("Users.email column updated to nullable");
   }
 
-  if (userTable?.role && !String(userTable.role.type || "").includes("'hr'")) {
+  if (userTable?.role && !String(userTable.role.type || "").includes("'master'")) {
     await queryInterface.changeColumn("users", "role", {
-      type: DataTypes.ENUM("admin", "hr", "manager", "employee"),
+      type: DataTypes.ENUM("admin", "master", "hr", "manager", "employee"),
       allowNull: false,
       defaultValue: "employee",
     });
-    console.log("Users.role enum updated with hr");
+    console.log("Users.role enum updated with master");
   }
 
   if (!userTable?.nic) {

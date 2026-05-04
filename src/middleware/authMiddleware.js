@@ -2,8 +2,8 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { toPlainObject } = require("../utils/userNormalizer");
 const { isInactiveUser } = require("../utils/employmentStatus");
+const { isAdminLikeRole, normalizeRole } = require("../utils/roleUtils");
 
-const normalizeValue = (value) => String(value || "").trim().toLowerCase();
 const AUTH_CACHE_TTL_MS = Number(process.env.AUTH_USER_CACHE_TTL_MS || 0);
 const AUTH_CACHE_MAX_USERS = Number(process.env.AUTH_USER_CACHE_MAX_USERS || 500);
 const AUTH_USER_CACHE_KEY = "__zivico_auth_user_cache__";
@@ -52,18 +52,18 @@ const clearCachedUser = (userId) => {
 };
 
 const isHRStaff = (user) => {
-  if (normalizeValue(user?.role) === "hr") {
+  if (normalizeRole(user?.role) === "hr") {
     return true;
   }
 
-  if (normalizeValue(user?.role) !== "manager") {
+  if (normalizeRole(user?.role) !== "manager") {
     return false;
   }
 
   const professional = toPlainObject(user?.professional, {});
-  const department = normalizeValue(professional?.department);
-  const teamName = normalizeValue(professional?.teamName);
-  const designation = normalizeValue(professional?.designation);
+  const department = normalizeRole(professional?.department);
+  const teamName = normalizeRole(professional?.teamName);
+  const designation = normalizeRole(professional?.designation);
 
   return (
     department === "hr" ||
@@ -106,20 +106,24 @@ const protect = async (req, res, next) => {
     }
 
     if (
-      normalizeValue(user.role) === "employee" &&
-      normalizeValue(user.approvalStatus || "approved") !== "approved"
+      normalizeRole(user.role) === "employee" &&
+      normalizeRole(user.approvalStatus || "approved") !== "approved"
     ) {
       return res.status(403).json({ message: "Your account is awaiting admin approval" });
     }
 
-    if (isInactiveUser(user) && !["admin", "hr"].includes(normalizeValue(user.role))) {
+    if (
+      isInactiveUser(user) &&
+      !isAdminLikeRole(user.role) &&
+      normalizeRole(user.role) !== "hr"
+    ) {
       return res.status(403).json({ message: "Your account has been deactivated. Please contact HR or admin." });
     }
 
     req.user = {
       ...user,
-      role: normalizeValue(user.role),
-      approvalStatus: normalizeValue(user.approvalStatus || "approved"),
+      role: normalizeRole(user.role),
+      approvalStatus: normalizeRole(user.approvalStatus || "approved"),
     };
     next();
   } catch (err) {
@@ -134,12 +138,16 @@ const protect = async (req, res, next) => {
 
 const authorize = (...roles) => {
   return (req, res, next) => {
-    const allowedRoles = new Set(roles.map((role) => normalizeValue(role)));
+    const allowedRoles = new Set(roles.map((role) => normalizeRole(role)));
+    if (allowedRoles.has("admin") || allowedRoles.has("master")) {
+      allowedRoles.add("admin");
+      allowedRoles.add("master");
+    }
     if (allowedRoles.has("admin")) {
       allowedRoles.add("hr");
     }
 
-    const userRole = normalizeValue(req.user?.role);
+    const userRole = normalizeRole(req.user?.role);
 
     if (!req.user || !allowedRoles.has(userRole)) {
       return res.status(403).json({ message: "Access denied" });
@@ -153,9 +161,9 @@ const authorizeAdminOrHR = (req, res, next) => {
     return res.status(403).json({ message: "Access denied" });
   }
 
-  const userRole = normalizeValue(req.user.role);
+  const userRole = normalizeRole(req.user.role);
 
-  if (userRole === "admin" || userRole === "hr" || isHRStaff(req.user)) {
+  if (isAdminLikeRole(userRole) || userRole === "hr" || isHRStaff(req.user)) {
     return next();
   }
 

@@ -3,6 +3,7 @@ const Leave = require("../models/Leave");
 const Notification = require("../models/Notification");
 const User = require("../models/User");
 const { sendLeaveApplicationEmail } = require("../services/emailService");
+const { isAdminLikeRole } = require("../utils/roleUtils");
 
 const LEGACY_POLICY_TOTALS = {
   annual: 21,
@@ -112,7 +113,7 @@ const buildUserPolicyBalances = (user = {}) => {
     }
   }
 
-  if ((user?.role === "admin" || user?.role === "manager") && !hasConfiguredTypes) {
+  if ((isAdminLikeRole(user?.role) || user?.role === "manager") && !hasConfiguredTypes) {
     return Object.fromEntries(
       Object.entries(LEGACY_POLICY_TOTALS).map(([typeKey, total]) => [
         typeKey,
@@ -401,7 +402,7 @@ const applyLeave = async (req, res) => {
       const isDepartmentManager = role === 'manager' && candidateDepartment === employeeDepartment;
       const isReportingManager = role === 'manager' && reportingManager && getUserKeys(candidate).includes(reportingManager);
 
-      if (role === "admin" || isHR || isDepartmentManager || isReportingManager) {
+      if (isAdminLikeRole(role) || isHR || isDepartmentManager || isReportingManager) {
         recipientIds.add(candidate.id);
         if (candidate.email) {
           // prefer more privileged role when multiple roles share same email
@@ -453,7 +454,7 @@ const applyLeave = async (req, res) => {
       const getLinkForRole = (role) => {
         const normalized = normalizeValue(role);
         if (!clientBaseUrl) return "";
-        if (normalized === "admin") return `${clientBaseUrl}/admin/leave`;
+        if (normalized === "admin" || normalized === "master") return `${clientBaseUrl}/admin/leave`;
         if (normalized === "hr") return `${clientBaseUrl}/hr/leave`;
         if (normalized === "manager") return `${clientBaseUrl}/manager/leave-requests`;
         return `${clientBaseUrl}/employee/leave`;
@@ -585,8 +586,8 @@ const pendingLeaves = async (req, res) => {
 // ✅ Manager/Admin → Approve/Reject (with remark)
 const updateLeaveStatus = async (req, res) => {
   try {
-    if (!["manager", "admin", "hr"].includes(String(req.user?.role || "").toLowerCase())) {
-      return res.status(403).json({ message: "Only managers, admins, or HR can approve or reject leave requests" });
+    if (!["manager", "admin", "master", "hr"].includes(String(req.user?.role || "").toLowerCase())) {
+      return res.status(403).json({ message: "Only managers, admins, masters, or HR can approve or reject leave requests" });
     }
 
     const { leaveId } = req.params;
