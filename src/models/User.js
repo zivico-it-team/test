@@ -16,7 +16,7 @@ const User = sequelize.define(
     email: { type: DataTypes.STRING(120), allowNull: true, unique: true, defaultValue: null },
 
     role: {
-      type: DataTypes.ENUM("admin", "hr", "manager", "employee"),
+      type: DataTypes.ENUM("admin", "master", "hr", "manager", "employee"),
       allowNull: false,
       defaultValue: "employee",
     },

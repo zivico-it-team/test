@@ -10,6 +10,7 @@ const {
   normalizeProfessional,
 } = require("../utils/userNormalizer");
 const { matchesEmploymentStatus } = require("../utils/employmentStatus");
+const { isAdminLikeRole } = require("../utils/roleUtils");
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const toInt = (value, fallback) => {
@@ -322,7 +323,7 @@ const isLeadApprovalReviewer = (user) => {
   const role = String(user?.role || "")
     .trim()
     .toLowerCase();
-  return role === "admin" || role === "manager";
+  return isAdminLikeRole(role) || role === "manager";
 };
 
 const mapMasterDataRequest = (request) => {
@@ -647,7 +648,7 @@ const createLeadMasterDataNotifications = async ({
   const recipients = await User.findAll({
     where: {
       role: {
-        [Op.in]: ["admin", "manager"],
+        [Op.in]: ["admin", "master", "manager"],
       },
     },
     attributes: ["id", "name", "role"],
@@ -1427,17 +1428,41 @@ const deleteLead = async (req, res) => {
 
 const getAssignEmployees = async (_req, res) => {
   try {
-    const employees = await User.findAll({
-      where: { role: "employee" },
-      attributes: [
-        "id",
-        "name",
-        "email",
-        "userName",
-        "role",
-        "professional",
-      ],
-      order: [["name", "ASC"]],
+    const [employees, assignedLeads] = await Promise.all([
+      User.findAll({
+        where: { role: "employee" },
+        attributes: [
+          "id",
+          "name",
+          "email",
+          "userName",
+          "role",
+          "professional",
+        ],
+        order: [["name", "ASC"]],
+      }),
+      Lead.findAll({
+        where: isAssignedWhere,
+        attributes: ["assignedToId", "assignedTo"],
+      }),
+    ]);
+
+    const assignedCountByEmployee = assignedLeads.reduce((counts, lead) => {
+      const assignedToId = String(lead?.assignedToId || "").trim();
+      const assignedTo = normalizeTextValue(lead?.assignedTo);
+
+      if (assignedToId) {
+        counts.byId.set(assignedToId, (counts.byId.get(assignedToId) || 0) + 1);
+      }
+
+      if (assignedTo) {
+        counts.byName.set(assignedTo, (counts.byName.get(assignedTo) || 0) + 1);
+      }
+
+      return counts;
+    }, {
+      byId: new Map(),
+      byName: new Map(),
     });
 
     return res.json({
@@ -1445,6 +1470,8 @@ const getAssignEmployees = async (_req, res) => {
         .map((employee) => {
           const obj = employee.toJSON();
           const professional = normalizeProfessional(obj.professional);
+          const employeeId = String(obj.id || "");
+          const normalizedName = normalizeTextValue(obj.name);
           return {
             ...obj,
             _id: obj.id,
@@ -1452,6 +1479,10 @@ const getAssignEmployees = async (_req, res) => {
             professional,
             department: professional.department || professional.teamName || "",
             designation: professional.designation || "",
+            assignedLeadCount:
+              assignedCountByEmployee.byId.get(employeeId)
+              || assignedCountByEmployee.byName.get(normalizedName)
+              || 0,
           };
         })
         .filter((employee) => matchesEmploymentStatus(employee, "active"))
@@ -1545,6 +1576,82 @@ const isNewWhere = {
   ],
 };
 
+const buildAssignLeadWhere = async ({
+  filter = "all",
+  search = "",
+  stage = "",
+  tag = "",
+  assignedEmployeeId = "",
+  assignedEmployeeName = "",
+} = {}) => {
+  const normalizedFilter = normalizeTextValue(filter || "all");
+  const normalizedStage = String(stage || "").trim();
+  const normalizedTag = String(tag || "").trim();
+  const normalizedSearch = String(search || "").trim();
+  const normalizedAssignedEmployeeId = String(assignedEmployeeId || "").trim();
+  const normalizedAssignedEmployeeName = String(assignedEmployeeName || "").trim();
+
+  let where = {};
+  if (normalizedFilter === "assigned") {
+    where = mergeWhere(where, isAssignedWhere);
+  } else if (normalizedFilter === "unassigned") {
+    where = mergeWhere(where, isUnassignedWhere);
+  } else if (normalizedFilter === "new") {
+    where = mergeWhere(where, isNewWhere);
+  } else if (
+    normalizedFilter === "sale_done" ||
+    normalizedFilter === "sale done" ||
+    normalizedFilter === "saledone"
+  ) {
+    where = mergeWhere(where, {
+      [Op.or]: [
+        { stage: { [Op.in]: ["Converted", "Sale Done"] } },
+        {
+          tag: {
+            [Op.in]: ["Sale Done", "Converted", "Existing Client (Invested)"],
+          },
+        },
+      ],
+    });
+  }
+
+  if (normalizedStage && normalizeTextValue(normalizedStage) !== "all") {
+    where = mergeWhere(where, { stage: normalizedStage });
+  }
+
+  if (normalizedTag && normalizeTextValue(normalizedTag) !== "all") {
+    where = mergeWhere(where, { tag: normalizedTag });
+  }
+
+  if (normalizedAssignedEmployeeId || normalizedAssignedEmployeeName) {
+    const employeeMatchConditions = [];
+
+    if (normalizedAssignedEmployeeId) {
+      employeeMatchConditions.push({ assignedToId: normalizedAssignedEmployeeId });
+    }
+
+    if (normalizedAssignedEmployeeName) {
+      employeeMatchConditions.push({ assignedTo: normalizedAssignedEmployeeName });
+    }
+
+    where = mergeWhere(where, isAssignedWhere);
+    where = mergeWhere(where, { [Op.or]: employeeMatchConditions });
+  }
+
+  if (normalizedSearch) {
+    const searchWhere = await buildLeadSearchWhere(normalizedSearch, [
+      "name",
+      "email",
+      "phone",
+      "uploadedBy",
+      "assignedTo",
+    ]);
+    where = mergeWhere(where, searchWhere);
+  }
+
+  return where;
+};
+
 const getAssignStats = async (_req, res) => {
   try {
     const [total, assigned, unassigned] = await Promise.all([
@@ -1569,41 +1676,18 @@ const getAssignLeads = async (req, res) => {
       .trim()
       .toLowerCase();
     const search = String(req.query.search || "").trim();
-
-    let where = {};
-    if (filter === "assigned") {
-      where = mergeWhere(where, isAssignedWhere);
-    } else if (filter === "unassigned") {
-      where = mergeWhere(where, isUnassignedWhere);
-    } else if (filter === "new") {
-      where = mergeWhere(where, isNewWhere);
-    } else if (
-      filter === "sale_done" ||
-      filter === "sale done" ||
-      filter === "saledone"
-    ) {
-      where = mergeWhere(where, {
-        [Op.or]: [
-          { stage: { [Op.in]: ["Converted", "Sale Done"] } },
-          {
-            tag: {
-              [Op.in]: ["Sale Done", "Converted", "Existing Client (Invested)"],
-            },
-          },
-        ],
-      });
-    }
-
-    if (search) {
-      const searchWhere = await buildLeadSearchWhere(search, [
-        "name",
-        "email",
-        "phone",
-        "uploadedBy",
-        "assignedTo",
-      ]);
-      where = mergeWhere(where, searchWhere);
-    }
+    const stage = String(req.query.stage || "").trim();
+    const tag = String(req.query.tag || "").trim();
+    const assignedEmployeeId = String(req.query.assignedEmployeeId || "").trim();
+    const assignedEmployeeName = String(req.query.assignedEmployeeName || "").trim();
+    const where = await buildAssignLeadWhere({
+      filter,
+      search,
+      stage,
+      tag,
+      assignedEmployeeId,
+      assignedEmployeeName,
+    });
 
     const offset = (page - 1) * limit;
     const attributes = await getSafeLeadAttributes();

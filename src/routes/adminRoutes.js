@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 
 const { protect, authorize, authorizeAdminOrHR } = require("../middleware/authMiddleware");
+const { isAdminLikeRole } = require("../utils/roleUtils");
 const {
   addManager,
   addEmployee,
@@ -13,6 +14,9 @@ const {
   deleteManager,
 
   getEmployees,
+  getDashboardUsersSummary,
+  getRolePermissionUsers,
+  updateUserRolePermissions,
   getEmployeeById,
   updateEmployee,
   deleteEmployee,
@@ -26,7 +30,7 @@ const {
 } = require("../controllers/adminController");
 
 const adminOnly = (req, res, next) => {
-  if (req.user?.role !== "admin") {
+  if (!isAdminLikeRole(req.user?.role)) {
     return res.status(403).json({ message: "Admin only" });
   }
 
@@ -391,6 +395,10 @@ router.delete("/manager/:id", protect, authorizeAdminOrHR, deleteManager);
  *         description: Server error
  */
 router.get("/employee", protect, authorize("admin", "manager", "hr"), getEmployees);
+router.get("/directory/users", protect, authorizeAdminOrHR, getRolePermissionUsers);
+router.get("/dashboard/users-summary", protect, authorize("admin"), getDashboardUsersSummary);
+router.get("/role-permissions/users", protect, adminOnly, getRolePermissionUsers);
+router.patch("/role-permissions/users/:id", protect, adminOnly, updateUserRolePermissions);
 router.get("/access/pending", protect, adminOnly, getPendingEmployeeAccess);
 router.patch("/access/:id/approve", protect, adminOnly, approveEmployeeAccess);
 

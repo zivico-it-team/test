@@ -38,7 +38,55 @@ const STANDARD_WORK_SECONDS = 8 * 60 * 60;
 const BREAK_LIMIT_SECONDS = {
   tea_break: 20 * 60,
   lunch_break: 40 * 60,
+  prayer_time: 70 * 60,
+  meeting: 0,
 };
+const ACTIVITY_EXPORT_TYPES = ["tea_break", "lunch_break", "prayer_time", "meeting"];
+const ACTIVITY_BREAK_FIELDS = {
+  tea_break: {
+    startKey: "teaBreakStart",
+    endKey: "teaBreakEnd",
+    durationKey: "teaBreakSeconds",
+    exceededKey: "teaBreakExceededSeconds",
+  },
+  lunch_break: {
+    startKey: "lunchBreakStart",
+    endKey: "lunchBreakEnd",
+    durationKey: "lunchBreakSeconds",
+    exceededKey: "lunchBreakExceededSeconds",
+  },
+  prayer_time: {
+    startKey: "prayerTimeStart",
+    endKey: "prayerTimeEnd",
+    durationKey: "prayerTimeSeconds",
+    exceededKey: "prayerTimeExceededSeconds",
+  },
+  meeting: {
+    startKey: "meetingStart",
+    endKey: "meetingEnd",
+    durationKey: "meetingSeconds",
+    exceededKey: "meetingExceededSeconds",
+  },
+};
+
+const createEmptyBreakSummary = () => ({
+  teaBreakStart: null,
+  teaBreakEnd: null,
+  teaBreakSeconds: 0,
+  teaBreakExceededSeconds: 0,
+  lunchBreakStart: null,
+  lunchBreakEnd: null,
+  lunchBreakSeconds: 0,
+  lunchBreakExceededSeconds: 0,
+  prayerTimeStart: null,
+  prayerTimeEnd: null,
+  prayerTimeSeconds: 0,
+  prayerTimeExceededSeconds: 0,
+  meetingStart: null,
+  meetingEnd: null,
+  meetingSeconds: 0,
+  meetingExceededSeconds: 0,
+});
 
 const safeUser = (u) => {
   const o = typeof u.toJSON === "function" ? u.toJSON() : u;
@@ -57,11 +105,22 @@ const getDepartmentScopeForManager = (viewer) => {
   const professional = toPlainObject(viewer?.professional, {});
   const department = normalizeText(professional.department);
   const teamName = normalizeText(professional.teamName);
+  const managerKeys = [
+    viewer?.id,
+    viewer?._id,
+    viewer?.name,
+    viewer?.email,
+    viewer?.userName,
+    professional.employeeId,
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
   const values = [department, teamName].filter(Boolean);
 
   return {
     isScoped: true,
     values: new Set(values),
+    managerKeys: new Set(managerKeys),
     label: professional.department || professional.teamName || "",
   };
 };
@@ -76,6 +135,11 @@ const employeeMatchesDepartmentScope = (employee, scope) => {
   }
 
   const professional = toPlainObject(employee?.professional, {});
+  const reportingManager = normalizeText(professional.reportingManager);
+  if (reportingManager && scope.managerKeys?.has(reportingManager)) {
+    return true;
+  }
+
   const employeeValues = [
     professional.department,
     professional.teamName,
@@ -192,25 +256,17 @@ const buildBreakMap = (activities) => {
   for (const activity of activities) {
     const key = `${activity.userId}|${activity.dateKey}`;
     if (!breakMap.has(key)) {
-      breakMap.set(key, {
-        teaBreakStart: null,
-        teaBreakEnd: null,
-        teaBreakSeconds: 0,
-        teaBreakExceededSeconds: 0,
-        lunchBreakStart: null,
-        lunchBreakEnd: null,
-        lunchBreakSeconds: 0,
-        lunchBreakExceededSeconds: 0,
-      });
+      breakMap.set(key, createEmptyBreakSummary());
+    }
+
+    const config = ACTIVITY_BREAK_FIELDS[activity.type];
+    if (!config) {
+      continue;
     }
 
     const entry = breakMap.get(key);
-    const isTeaBreak = activity.type === "tea_break";
-    const startKey = isTeaBreak ? "teaBreakStart" : "lunchBreakStart";
-    const endKey = isTeaBreak ? "teaBreakEnd" : "lunchBreakEnd";
-    const durationKey = isTeaBreak ? "teaBreakSeconds" : "lunchBreakSeconds";
-    const exceededKey = isTeaBreak ? "teaBreakExceededSeconds" : "lunchBreakExceededSeconds";
-    const limit = isTeaBreak ? BREAK_LIMIT_SECONDS.tea_break : BREAK_LIMIT_SECONDS.lunch_break;
+    const { startKey, endKey, durationKey, exceededKey } = config;
+    const limit = BREAK_LIMIT_SECONDS[activity.type] || 0;
 
     if (!entry[startKey] || new Date(activity.startedAt) < new Date(entry[startKey])) {
       entry[startKey] = activity.startedAt;
@@ -224,7 +280,7 @@ const buildBreakMap = (activities) => {
     }
 
     entry[durationKey] += getActivityDurationSeconds(activity);
-    entry[exceededKey] = Math.max(0, entry[durationKey] - limit);
+    entry[exceededKey] = limit > 0 ? Math.max(0, entry[durationKey] - limit) : 0;
   }
 
   return breakMap;
@@ -316,7 +372,7 @@ const buildMonthlyTrackerData = async ({
       where: {
         userId: { [Op.in]: empIds },
         dateKey: { [Op.gte]: toDateKey(start), [Op.lte]: toDateKey(end) },
-        type: { [Op.in]: ["tea_break", "lunch_break"] },
+        type: { [Op.in]: ACTIVITY_EXPORT_TYPES },
       },
       order: [["startedAt", "ASC"]],
       attributes: ["userId", "dateKey", "type", "startedAt", "endedAt", "durationSeconds"],
@@ -413,7 +469,10 @@ const buildMonthlyTrackerData = async ({
       const workedSeconds = attendance?.totalWorkedSeconds || 0;
       const dailyOvertimeSeconds = Math.max(0, workedSeconds - STANDARD_WORK_SECONDS);
       const dailyExcessBreakSeconds =
-        (breaks.teaBreakExceededSeconds || 0) + (breaks.lunchBreakExceededSeconds || 0);
+        (breaks.teaBreakExceededSeconds || 0) +
+        (breaks.lunchBreakExceededSeconds || 0) +
+        (breaks.prayerTimeExceededSeconds || 0) +
+        (breaks.meetingExceededSeconds || 0);
 
       overtimeSeconds += dailyOvertimeSeconds;
       excessBreakSeconds += dailyExcessBreakSeconds;
@@ -446,6 +505,14 @@ const buildMonthlyTrackerData = async ({
         lunchBreakEnd: breaks.lunchBreakEnd || null,
         lunchBreakSeconds: breaks.lunchBreakSeconds || 0,
         lunchBreakExceededSeconds: breaks.lunchBreakExceededSeconds || 0,
+        prayerTimeStart: breaks.prayerTimeStart || null,
+        prayerTimeEnd: breaks.prayerTimeEnd || null,
+        prayerTimeSeconds: breaks.prayerTimeSeconds || 0,
+        prayerTimeExceededSeconds: breaks.prayerTimeExceededSeconds || 0,
+        meetingStart: breaks.meetingStart || null,
+        meetingEnd: breaks.meetingEnd || null,
+        meetingSeconds: breaks.meetingSeconds || 0,
+        meetingExceededSeconds: breaks.meetingExceededSeconds || 0,
         leaveType: leaveInfo?.type || "",
         leaveReason: leaveInfo?.reason || "",
       });
@@ -564,7 +631,7 @@ const dayDetails = async (req, res) => {
         attributes: ["checkInAt", "checkOutAt", "totalWorkedSeconds", "isLate"],
       }),
       Activity.findAll({
-        where: { userId, dateKey: dk, type: { [Op.in]: ["tea_break", "lunch_break"] } },
+        where: { userId, dateKey: dk, type: { [Op.in]: ACTIVITY_EXPORT_TYPES } },
         order: [["startedAt", "ASC"]],
         attributes: ["userId", "dateKey", "type", "startedAt", "endedAt", "durationSeconds", "isActive"],
       }),
@@ -585,16 +652,7 @@ const dayDetails = async (req, res) => {
         userId,
         dateKey: dk,
       }))
-    ).get(`${userId}|${dk}`) || {
-      teaBreakStart: null,
-      teaBreakEnd: null,
-      teaBreakSeconds: 0,
-      teaBreakExceededSeconds: 0,
-      lunchBreakStart: null,
-      lunchBreakEnd: null,
-      lunchBreakSeconds: 0,
-      lunchBreakExceededSeconds: 0,
-    };
+    ).get(`${userId}|${dk}`) || createEmptyBreakSummary();
 
     const totalWorkedSeconds = att?.totalWorkedSeconds || 0;
     const overtimeSeconds = Math.max(0, totalWorkedSeconds - STANDARD_WORK_SECONDS);
@@ -623,11 +681,30 @@ const dayDetails = async (req, res) => {
         exceededSeconds: breakSummary.lunchBreakExceededSeconds || 0,
         isActive: acts.some((activity) => activity.type === "lunch_break" && activity.isActive),
       },
+      prayerTime: {
+        start: breakSummary.prayerTimeStart,
+        end: breakSummary.prayerTimeEnd,
+        durationSeconds: breakSummary.prayerTimeSeconds || 0,
+        exceededSeconds: breakSummary.prayerTimeExceededSeconds || 0,
+        isActive: acts.some((activity) => activity.type === "prayer_time" && activity.isActive),
+      },
+      meeting: {
+        start: breakSummary.meetingStart,
+        end: breakSummary.meetingEnd,
+        durationSeconds: breakSummary.meetingSeconds || 0,
+        exceededSeconds: breakSummary.meetingExceededSeconds || 0,
+        isActive: acts.some((activity) => activity.type === "meeting" && activity.isActive),
+      },
       excessBreakSeconds:
-        (breakSummary.teaBreakExceededSeconds || 0) + (breakSummary.lunchBreakExceededSeconds || 0),
+        (breakSummary.teaBreakExceededSeconds || 0) +
+        (breakSummary.lunchBreakExceededSeconds || 0) +
+        (breakSummary.prayerTimeExceededSeconds || 0) +
+        (breakSummary.meetingExceededSeconds || 0),
       breakLimits: {
         teaBreakSeconds: BREAK_LIMIT_SECONDS.tea_break,
         lunchBreakSeconds: BREAK_LIMIT_SECONDS.lunch_break,
+        prayerTimeSeconds: BREAK_LIMIT_SECONDS.prayer_time,
+        meetingSeconds: BREAK_LIMIT_SECONDS.meeting,
       },
       leave: leave
         ? {

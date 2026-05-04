@@ -13,7 +13,7 @@ const IMPORTANT_DOCUMENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 const getImportantDocumentRouteForRole = (role = "") => {
   const normalizedRole = String(role || "").trim().toLowerCase();
-  if (normalizedRole === "admin") return "/admin/important-documents";
+  if (normalizedRole === "admin" || normalizedRole === "master") return "/admin/important-documents";
   if (normalizedRole === "hr") return "/hr/important-documents";
   if (normalizedRole === "manager") return "/manager/important-documents";
   return "/employee/important-documents";
