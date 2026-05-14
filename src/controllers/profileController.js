@@ -65,7 +65,6 @@ exports.updateMyProfile = async (req, res, next) => {
       "joiningDate",
       "reportingManager",
       "workLocation",
-      "rolePermissionTemplates",
     ];
 
     const emergencyAllowed = ["name", "phone", "relationship", "email"];
