@@ -1,8 +1,4 @@
-const path = require("path");
-const dotenv = require("dotenv");
-
-// Load .env before importing modules that depend on env vars
-dotenv.config({ path: path.join(__dirname, ".env") });
+require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
@@ -87,9 +83,8 @@ app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get("/", (_req, res) => {
-  // Do not expose backend banner on the root domain.
   res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
-  res.status(404).end();
+  res.status(200).send("Backend is running");
 });
 
 app.use("/api/auth", require("./src/routes/authRoutes"));
@@ -149,7 +144,7 @@ app.use((err, req, res, next) => {
   return res.status(status).json({ message });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 let serverStarted = false;
 
 const listenOnce = (suffix = "") => {

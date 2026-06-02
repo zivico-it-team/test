@@ -1,6 +1,6 @@
 const swaggerJsdoc = require("swagger-jsdoc");
 
-const serverUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+const serverUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 const swaggerOptions = {
   definition: {
