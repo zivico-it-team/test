@@ -1,7 +1,6 @@
 const User = require("../models/User");
 const { toPublicUser } = require("../utils/userNormalizer");
 const { matchesEmploymentStatus } = require("../utils/employmentStatus");
-const { isAdminLikeRole } = require("../utils/roleUtils");
 
 const parseProfessional = (value) => {
   if (value && typeof value === "object" && !Array.isArray(value)) return value;
@@ -67,7 +66,10 @@ const pickUser = (u) => {
   };
 };
 
-const isCEO = (u) => getDesignation(u).includes("ceo") || isAdminLikeRole(u?.role);
+const isCEO = (u) => {
+  const role = normalizeValue(u?.role);
+  return getDesignation(u).includes("ceo") || role === "admin";
+};
 
 const isHRDepartmentUser = (u) => {
   const department = getDepartment(u);
