@@ -1,5 +1,8 @@
 const User = require("../models/User");
 const LeaderboardPerformance = require("../models/LeaderboardPerformance");
+const LeaderboardRankingHistory = require("../models/LeaderboardRankingHistory");
+const LeaderboardMonthlyCycle = require("../models/LeaderboardMonthlyCycle");
+const { sequelize } = require("../config/db");
 const { matchesEmploymentStatus } = require("../utils/employmentStatus");
 
 const toNumber = (value, fallback = 0) => {
@@ -53,63 +56,189 @@ const isSalesEmployee = (user) => {
   return role === "employee" && (department === "sales" || department.includes("sales"));
 };
 
-const listLeaderboard = async (_req, res) => {
-  try {
-    const [employees, performances] = await Promise.all([
+const getRankedLeaderboard = async (transaction) => {
+  const [employees, performances] = await Promise.all([
       User.findAll({
         where: { role: "employee" },
         attributes: ["id", "name", "email", "role", "professional"],
         order: [["name", "ASC"]],
+        transaction,
       }),
       LeaderboardPerformance.findAll({
         order: [["updatedAt", "DESC"]],
+        transaction,
       }),
-    ]);
+  ]);
 
-    const perfMap = new Map(
-      performances.map((perf) => [String(perf.employeeId), perf.toJSON()])
-    );
+  const perfMap = new Map(
+    performances.map((perf) => [String(perf.employeeId), perf.toJSON()])
+  );
 
-    const items = employees
-      .map((employee) => employee.toJSON())
-      .filter((employee) => matchesEmploymentStatus(employee, "active"))
-      .filter(isSalesEmployee)
-      .map((employee) => {
-        const perf = perfMap.get(String(employee.id)) || {};
-        const target = toNonNegativeInt(perf.target, 0);
-        const achieved = toNonNegativeInt(perf.achieved, 0);
-        const progress = getProgress(achieved, target);
+  const items = employees
+    .map((employee) => employee.toJSON())
+    .filter((employee) => matchesEmploymentStatus(employee, "active"))
+    .filter(isSalesEmployee)
+    .map((employee) => {
+      const perf = perfMap.get(String(employee.id)) || {};
+      const target = toNonNegativeInt(perf.target, 0);
+      const achieved = toNonNegativeInt(perf.achieved, 0);
+      const progress = getProgress(achieved, target);
 
-        return {
-          employeeId: employee.id,
-          _id: employee.id,
-          id: employee.id,
-          name: employee.name || "Employee",
-          email: employee.email || "",
-          role: employee.role || "employee",
-          employeeCode: getProfessional(employee)?.employeeId || "",
-          designation: getProfessional(employee)?.designation || "",
-          department: getDepartment(employee),
-          target,
-          achieved,
-          progress,
-          updatedBy: perf.updatedBy || "",
-          updatedAt: perf.updatedAt || null,
-        };
-      });
+      return {
+        employeeId: employee.id,
+        _id: employee.id,
+        id: employee.id,
+        name: employee.name || "Employee",
+        email: employee.email || "",
+        role: employee.role || "employee",
+        employeeCode: getProfessional(employee)?.employeeId || "",
+        designation: getProfessional(employee)?.designation || "",
+        department: getDepartment(employee),
+        target,
+        achieved,
+        progress,
+        updatedBy: perf.updatedBy || "",
+        updatedAt: perf.updatedAt || null,
+      };
+    });
 
-    const ranked = items
-      .sort((left, right) => {
-        if (right.progress !== left.progress) {
-          return right.progress - left.progress;
+  return items
+    .sort((left, right) => {
+      if (right.progress !== left.progress) {
+        return right.progress - left.progress;
+      }
+      if (right.achieved !== left.achieved) {
+        return right.achieved - left.achieved;
+      }
+      return String(left.name || "").localeCompare(String(right.name || ""));
+    })
+    .map((item, index) => ({ ...item, position: index + 1 }));
+};
+
+const normalizeMonthKey = (value) => {
+  const monthKey = String(value || "").trim();
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey) ? monthKey : "";
+};
+
+const getCurrentMonthKey = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: process.env.APP_TIMEZONE || "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  return `${year}-${month}`;
+};
+
+const archiveRankings = async ({
+  monthKey,
+  ranked,
+  savedBy,
+  transaction,
+}) => {
+  if (ranked.length === 0) {
+    return 0;
+  }
+
+  await LeaderboardRankingHistory.destroy({
+    where: { monthKey },
+    transaction,
+  });
+  await LeaderboardRankingHistory.bulkCreate(
+    ranked.map((item) => ({
+      monthKey,
+      employeeId: item.employeeId,
+      employeeName: item.name,
+      employeeCode: item.employeeCode,
+      designation: item.designation,
+      rank: item.position,
+      target: item.target,
+      achieved: item.achieved,
+      progress: item.progress,
+      savedBy,
+    })),
+    { transaction }
+  );
+
+  return ranked.length;
+};
+
+const ensureLeaderboardMonthRollover = async () => {
+  const currentMonthKey = getCurrentMonthKey();
+
+  return sequelize.transaction(async (transaction) => {
+    const [cycle] = await LeaderboardMonthlyCycle.findOrCreate({
+      where: { id: "leaderboard" },
+      defaults: {
+        id: "leaderboard",
+        activeMonthKey: currentMonthKey,
+        lastProcessedAt: new Date(),
+      },
+      transaction,
+    });
+
+    const lockedCycle = await LeaderboardMonthlyCycle.findByPk(cycle.id, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    if (!lockedCycle || lockedCycle.activeMonthKey === currentMonthKey) {
+      return { rolledOver: false, currentMonthKey };
+    }
+
+    const archivedMonthKey = lockedCycle.activeMonthKey;
+    const ranked = await getRankedLeaderboard(transaction);
+    const archivedCount = await archiveRankings({
+      monthKey: archivedMonthKey,
+      ranked,
+      savedBy: "Automatic month-end archive",
+      transaction,
+    });
+
+    lockedCycle.activeMonthKey = currentMonthKey;
+    lockedCycle.lastProcessedAt = new Date();
+    await lockedCycle.save({ transaction });
+
+    return {
+      rolledOver: true,
+      archivedMonthKey,
+      archivedCount,
+      currentMonthKey,
+    };
+  });
+};
+
+let monthlyRolloverTimer = null;
+
+const startLeaderboardMonthRolloverScheduler = () => {
+  if (monthlyRolloverTimer) {
+    return;
+  }
+
+  const runRollover = () => {
+    ensureLeaderboardMonthRollover()
+      .then((result) => {
+        if (result.rolledOver) {
+          console.log(
+            `Leaderboard ${result.archivedMonthKey} archived automatically for ${result.currentMonthKey}`
+          );
         }
-        if (right.achieved !== left.achieved) {
-          return right.achieved - left.achieved;
-        }
-        return String(left.name || "").localeCompare(String(right.name || ""));
       })
-      .map((item, index) => ({ ...item, position: index + 1 }));
+      .catch((error) => {
+        console.error("Automatic leaderboard month rollover failed", error);
+      });
+  };
 
+  runRollover();
+  monthlyRolloverTimer = setInterval(runRollover, 5 * 60 * 1000);
+  monthlyRolloverTimer.unref?.();
+};
+
+const listLeaderboard = async (_req, res) => {
+  try {
+    await ensureLeaderboardMonthRollover();
+    const ranked = await getRankedLeaderboard();
     const totalTarget = ranked.reduce((sum, item) => sum + item.target, 0);
     const totalAchieved = ranked.reduce((sum, item) => sum + item.achieved, 0);
     const percentage = totalTarget > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
@@ -129,8 +258,74 @@ const listLeaderboard = async (_req, res) => {
   }
 };
 
+const getActorName = (req) =>
+  String(
+    req.body?.savedBy ||
+      req.body?.updatedBy ||
+      req.user?.name ||
+      req.user?.userName ||
+      req.user?.email ||
+      "System"
+  ).trim() || "System";
+
+const listRankingHistory = async (req, res) => {
+  try {
+    const requestedMonth = req.query?.monthKey;
+    const monthKey = requestedMonth ? normalizeMonthKey(requestedMonth) : "";
+
+    if (requestedMonth && !monthKey) {
+      return res.status(400).json({ message: "monthKey must use YYYY-MM format" });
+    }
+
+    const rows = await LeaderboardRankingHistory.findAll({
+      ...(monthKey ? { where: { monthKey } } : {}),
+      order: [
+        ["monthKey", "DESC"],
+        ["rank", "ASC"],
+      ],
+    });
+
+    const items = rows.map((row) => {
+      const item = row.toJSON();
+      return {
+        ...item,
+        position: item.rank,
+        name: item.employeeName,
+      };
+    });
+    const months = Array.from(new Set(items.map((item) => item.monthKey)));
+
+    return res.json({ months, items });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to load ranking history" });
+  }
+};
+
+const resetMonthlyAchieved = async (req, res) => {
+  try {
+    await ensureLeaderboardMonthRollover();
+    const updatedBy = getActorName(req);
+    const [updatedCount] = await LeaderboardPerformance.update(
+      { achieved: 0, updatedBy },
+      { where: {} }
+    );
+
+    return res.json({
+      message: "Monthly achieved values reset successfully",
+      updatedCount,
+    });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to reset monthly achieved values" });
+  }
+};
+
 const updatePerformance = async (req, res) => {
   try {
+    await ensureLeaderboardMonthRollover();
     const employeeId = String(req.body?.employeeId || "").trim();
     const hasTarget = req.body?.target !== undefined;
     const hasAchieved = req.body?.achieved !== undefined;
@@ -223,6 +418,10 @@ const updatePerformance = async (req, res) => {
 };
 
 module.exports = {
+  ensureLeaderboardMonthRollover,
   listLeaderboard,
+  listRankingHistory,
+  resetMonthlyAchieved,
+  startLeaderboardMonthRolloverScheduler,
   updatePerformance,
 };
