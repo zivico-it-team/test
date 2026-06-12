@@ -8,6 +8,9 @@ const { connectDB } = require("./src/config/db");
 const { uploadsDir, uploadsRoute } = require("./src/config/uploads");
 const seedSystemUsers = require("./src/config/seedAdmin");
 const swaggerSpec = require("./src/config/swagger");
+const {
+  startLeaderboardMonthRolloverScheduler,
+} = require("./src/controllers/leaderboardController");
 
 const app = express();
 
@@ -163,6 +166,7 @@ const startServer = async () => {
   try {
     await connectDB();
     await seedSystemUsers();
+    startLeaderboardMonthRolloverScheduler();
     listenOnce();
   } catch (error) {
     if (isMysqlConnectionQuotaError(error)) {

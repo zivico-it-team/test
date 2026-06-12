@@ -492,6 +492,120 @@ const runBootstrapMigrations = async () => {
     });
   }
 
+  const leaderboardHistoryTable = await queryInterface
+    .describeTable("leaderboard_ranking_history")
+    .catch(() => null);
+  if (!leaderboardHistoryTable) {
+    await queryInterface.createTable("leaderboard_ranking_history", {
+      id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        primaryKey: true,
+      },
+      monthKey: {
+        type: DataTypes.STRING(7),
+        allowNull: false,
+      },
+      employeeId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+      },
+      employeeName: {
+        type: DataTypes.STRING(160),
+        allowNull: false,
+        defaultValue: "Employee",
+      },
+      employeeCode: {
+        type: DataTypes.STRING(60),
+        allowNull: false,
+        defaultValue: "",
+      },
+      designation: {
+        type: DataTypes.STRING(120),
+        allowNull: false,
+        defaultValue: "",
+      },
+      rank: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+      },
+      target: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      achieved: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      progress: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      savedBy: {
+        type: DataTypes.STRING(120),
+        allowNull: false,
+        defaultValue: "System",
+      },
+      createdAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+    await queryInterface.addIndex(
+      "leaderboard_ranking_history",
+      ["monthKey", "employeeId"],
+      { unique: true, name: "leaderboard_history_month_employee_unique" }
+    );
+    await queryInterface.addIndex(
+      "leaderboard_ranking_history",
+      ["monthKey", "rank"],
+      { name: "leaderboard_history_month_rank" }
+    );
+    console.log("leaderboard_ranking_history table created");
+  }
+
+  const leaderboardCycleTable = await queryInterface
+    .describeTable("leaderboard_monthly_cycles")
+    .catch(() => null);
+  if (!leaderboardCycleTable) {
+    await queryInterface.createTable("leaderboard_monthly_cycles", {
+      id: {
+        type: DataTypes.STRING(40),
+        allowNull: false,
+        primaryKey: true,
+      },
+      activeMonthKey: {
+        type: DataTypes.STRING(7),
+        allowNull: false,
+      },
+      lastProcessedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+      },
+      createdAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+    console.log("leaderboard_monthly_cycles table created");
+  }
+
   const leadTable = await queryInterface.describeTable("leads").catch(() => null);
   if (!leadTable) {
     return;
