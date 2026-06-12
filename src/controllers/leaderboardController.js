@@ -301,8 +301,15 @@ const listLeaderboard = async (_req, res) => {
       getRankedLeaderboard(),
       getRankedLeaderboard(undefined, "inactive", getCurrentMonthKey()),
     ]);
-    const totalTarget = ranked.reduce((sum, item) => sum + item.target, 0);
-    const totalAchieved = ranked.reduce((sum, item) => sum + item.achieved, 0);
+    const currentMonthItems = [...ranked, ...inactiveRanked];
+    const totalTarget = currentMonthItems.reduce(
+      (sum, item) => sum + item.target,
+      0
+    );
+    const totalAchieved = currentMonthItems.reduce(
+      (sum, item) => sum + item.achieved,
+      0
+    );
     const percentage = totalTarget > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
 
     return res.json({
