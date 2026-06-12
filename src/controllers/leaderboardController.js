@@ -50,17 +50,52 @@ const getDepartment = (user) =>
   user?.department ||
   "";
 
+const getMonthKeyForDate = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  const rawValue = String(value).trim();
+  const dateOnlyMatch = rawValue.match(/^(\d{4})-(\d{2})-\d{2}$/);
+  if (dateOnlyMatch) {
+    return `${dateOnlyMatch[1]}-${dateOnlyMatch[2]}`;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: process.env.APP_TIMEZONE || "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  return year && month ? `${year}-${month}` : "";
+};
+
+const wasInactivatedInMonth = (user, monthKey) => {
+  const inactiveDate = getProfessional(user)?.resignedDate || user?.updatedAt;
+  return getMonthKeyForDate(inactiveDate) === monthKey;
+};
+
 const isSalesEmployee = (user) => {
   const role = normalizeValue(user?.role);
   const department = normalizeValue(getDepartment(user));
   return role === "employee" && (department === "sales" || department.includes("sales"));
 };
 
-const getRankedLeaderboard = async (transaction) => {
+const getRankedLeaderboard = async (
+  transaction,
+  employmentStatus = "active",
+  inactiveMonthKey = ""
+) => {
   const [employees, performances] = await Promise.all([
       User.findAll({
         where: { role: "employee" },
-        attributes: ["id", "name", "email", "role", "professional"],
+        attributes: ["id", "name", "email", "role", "professional", "updatedAt"],
         order: [["name", "ASC"]],
         transaction,
       }),
@@ -76,7 +111,11 @@ const getRankedLeaderboard = async (transaction) => {
 
   const items = employees
     .map((employee) => employee.toJSON())
-    .filter((employee) => matchesEmploymentStatus(employee, "active"))
+    .filter((employee) => matchesEmploymentStatus(employee, employmentStatus))
+    .filter(
+      (employee) =>
+        !inactiveMonthKey || wasInactivatedInMonth(employee, inactiveMonthKey)
+    )
     .filter(isSalesEmployee)
     .map((employee) => {
       const perf = perfMap.get(String(employee.id)) || {};
@@ -94,6 +133,9 @@ const getRankedLeaderboard = async (transaction) => {
         employeeCode: getProfessional(employee)?.employeeId || "",
         designation: getProfessional(employee)?.designation || "",
         department: getDepartment(employee),
+        employmentStatus,
+        resignedDate: getProfessional(employee)?.resignedDate || null,
+        employeeUpdatedAt: employee.updatedAt || null,
         target,
         achieved,
         progress,
@@ -141,10 +183,6 @@ const archiveRankings = async ({
     return 0;
   }
 
-  await LeaderboardRankingHistory.destroy({
-    where: { monthKey },
-    transaction,
-  });
   await LeaderboardRankingHistory.bulkCreate(
     ranked.map((item) => ({
       monthKey,
@@ -158,7 +196,10 @@ const archiveRankings = async ({
       progress: item.progress,
       savedBy,
     })),
-    { transaction }
+    {
+      transaction,
+      ignoreDuplicates: true,
+    }
   );
 
   return ranked.length;
@@ -188,7 +229,25 @@ const ensureLeaderboardMonthRollover = async () => {
     }
 
     const archivedMonthKey = lockedCycle.activeMonthKey;
-    const ranked = await getRankedLeaderboard(transaction);
+    const [activeRanked, inactiveRanked] = await Promise.all([
+      getRankedLeaderboard(transaction),
+      getRankedLeaderboard(transaction, "inactive", archivedMonthKey),
+    ]);
+    const archivedEmployeeMap = new Map();
+    [...activeRanked, ...inactiveRanked].forEach((item) => {
+      archivedEmployeeMap.set(String(item.employeeId), item);
+    });
+    const ranked = Array.from(archivedEmployeeMap.values())
+      .sort((left, right) => {
+        if (right.progress !== left.progress) {
+          return right.progress - left.progress;
+        }
+        if (right.achieved !== left.achieved) {
+          return right.achieved - left.achieved;
+        }
+        return String(left.name || "").localeCompare(String(right.name || ""));
+      })
+      .map((item, index) => ({ ...item, position: index + 1 }));
     const archivedCount = await archiveRankings({
       monthKey: archivedMonthKey,
       ranked,
@@ -238,13 +297,17 @@ const startLeaderboardMonthRolloverScheduler = () => {
 const listLeaderboard = async (_req, res) => {
   try {
     await ensureLeaderboardMonthRollover();
-    const ranked = await getRankedLeaderboard();
+    const [ranked, inactiveRanked] = await Promise.all([
+      getRankedLeaderboard(),
+      getRankedLeaderboard(undefined, "inactive", getCurrentMonthKey()),
+    ]);
     const totalTarget = ranked.reduce((sum, item) => sum + item.target, 0);
     const totalAchieved = ranked.reduce((sum, item) => sum + item.achieved, 0);
     const percentage = totalTarget > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
 
     return res.json({
       items: ranked,
+      inactiveItems: inactiveRanked,
       summary: {
         totalTarget,
         totalAchieved,
@@ -403,6 +466,7 @@ const updatePerformance = async (req, res) => {
         employeeCode: getProfessional(e)?.employeeId || "",
         designation: getProfessional(e)?.designation || "",
         department: getDepartment(e),
+        employmentStatus: matchesEmploymentStatus(e, "inactive") ? "inactive" : "active",
         target: p.target,
         achieved: p.achieved,
         progress: getProgress(p.achieved, p.target),
