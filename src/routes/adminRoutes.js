@@ -27,6 +27,9 @@ const {
   getAdminProfile,
   updateAdminProfile,
   changeAdminPassword,
+
+  // role permission templates
+  saveRolePermissionTemplates,
 } = require("../controllers/adminController");
 
 const adminOnly = (req, res, next) => {
@@ -399,6 +402,12 @@ router.get("/directory/users", protect, authorizeAdminOrHR, getRolePermissionUse
 router.get("/dashboard/users-summary", protect, authorize("admin"), getDashboardUsersSummary);
 router.get("/role-permissions/users", protect, adminOnly, getRolePermissionUsers);
 router.patch("/role-permissions/users/:id", protect, adminOnly, updateUserRolePermissions);
+router.patch(
+  "/role-permissions/templates",
+  protect,
+  authorize("admin", "master"),
+  saveRolePermissionTemplates
+);
 router.get("/access/pending", protect, adminOnly, getPendingEmployeeAccess);
 router.patch("/access/:id/approve", protect, adminOnly, approveEmployeeAccess);
 

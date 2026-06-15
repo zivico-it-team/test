@@ -58,6 +58,7 @@ const parseOrigins = (value = "") =>
 
 const allowedOrigins = Array.from(
   new Set([
+    // Production CRM frontend — must always be present
     "https://crm.revoraglobal.com",
     "https://revoraglobal.com",
     "https://api.revoraglobal.com",
@@ -69,18 +70,33 @@ const allowedOrigins = Array.from(
 
 const corsOptions = {
   origin(origin, callback) {
-    // Allow non-browser requests (curl/postman/server-to-server)
+    // Allow non-browser requests (curl / postman / server-to-server)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
+    console.warn(`[CORS] Blocked request from unlisted origin: ${origin}`);
     return callback(new Error("Not allowed by CORS"));
   },
   methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
   allowedHeaders: "Content-Type,Authorization",
   credentials: true,
+  optionsSuccessStatus: 204,
 };
 
+// Apply CORS to every route — this adds Access-Control-* headers to all responses
+// including error responses, so the browser can read error bodies cross-origin.
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions));
+
+// Explicit OPTIONS preflight handler — must come before route definitions.
+// Without this, browsers that send a preflight for PATCH/DELETE/custom-headers
+// never receive the Access-Control-Allow-* headers and block the real request.
+app.options("*", cors(corsOptions));
+
+// Per-request backend logger (method, path, origin)
+app.use((req, _res, next) => {
+  const origin = req.headers.origin || "(no-origin)";
+  console.log(`[req] ${req.method} ${req.path} — origin=${origin}`);
+  next();
+});
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "5mb" }));
 app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || "5mb" }));
 
@@ -126,7 +142,12 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   const isCorsError = err?.message === "Not allowed by CORS";
   if (isCorsError) {
-    return res.status(403).json({ message: "CORS blocked for this origin" });
+    const blockedOrigin = req.headers.origin || "unknown";
+    console.error(`[CORS] 403 blocked — origin=${blockedOrigin} path=${req.path}`);
+    return res.status(403).json({
+      message: "CORS Blocked",
+      detail: `Requests from origin '${blockedOrigin}' are not permitted. Contact the API administrator.`,
+    });
   }
 
   if (err?.type === "entity.too.large" || Number(err?.status) === 413) {

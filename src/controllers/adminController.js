@@ -1033,6 +1033,89 @@ const deleteEmployee = async (req, res) => {
   }
 };
 
+// PATCH role-permission templates (Admin / Master only)
+const saveRolePermissionTemplates = async (req, res) => {
+  const actorId = String(req.user?._id || req.user?.id || "").trim();
+  const actorRole = String(req.user?.role || "").trim();
+
+  console.log(
+    `[role-permissions/templates] PATCH request — userId=${actorId} role=${actorRole}`
+  );
+
+  try {
+    const rolePermissionTemplates = req.body?.rolePermissionTemplates;
+
+    if (
+      !rolePermissionTemplates ||
+      typeof rolePermissionTemplates !== "object" ||
+      Array.isArray(rolePermissionTemplates)
+    ) {
+      console.warn(
+        `[role-permissions/templates] Invalid payload from userId=${actorId}:`,
+        typeof rolePermissionTemplates
+      );
+      return res.status(400).json({
+        message: "Invalid Payload",
+        detail: "rolePermissionTemplates must be a non-null object",
+      });
+    }
+
+    const admin = await User.findByPk(actorId);
+
+    if (!admin) {
+      console.error(
+        `[role-permissions/templates] Template Not Found — userId=${actorId} not in DB`
+      );
+      return res.status(404).json({
+        message: "Template Not Found",
+        detail: "Admin user record does not exist",
+      });
+    }
+
+    if (!isAdminLikeRole(admin.role)) {
+      console.warn(
+        `[role-permissions/templates] Permission Denied — userId=${actorId} role=${admin.role}`
+      );
+      return res.status(403).json({
+        message: "Permission Denied",
+        detail: "Only admin or master users can manage role permission templates",
+      });
+    }
+
+    const existingProfessional = toPlainObject(admin.professional, {});
+    await admin.update({
+      professional: {
+        ...existingProfessional,
+        rolePermissionTemplates,
+      },
+    });
+
+    clearCachedUser(actorId);
+
+    const updated = await User.findByPk(actorId, {
+      attributes: { exclude: ["password"] },
+    });
+
+    console.log(
+      `[role-permissions/templates] PATCH success — userId=${actorId}`
+    );
+
+    return res.json({
+      message: "Role permission templates saved successfully",
+      user: toPublicUser(updated),
+    });
+  } catch (err) {
+    console.error(
+      `[role-permissions/templates] PATCH error — userId=${actorId}:`,
+      err
+    );
+    return res.status(500).json({
+      message: "Database Error",
+      detail: err?.message || "Failed to save role permission templates",
+    });
+  }
+};
+
 // GET admin profile (Admin only)
 const getAdminProfile = async (req, res) => {
   try {
@@ -1172,4 +1255,5 @@ module.exports = {
   getAdminProfile,
   updateAdminProfile,
   changeAdminPassword,
+  saveRolePermissionTemplates,
 };
