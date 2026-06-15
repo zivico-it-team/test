@@ -84,12 +84,24 @@ const corsOptions = {
 
 // Apply CORS to every route — this adds Access-Control-* headers to all responses
 // including error responses, so the browser can read error bodies cross-origin.
+// Temporary debug middleware to help diagnose preflight issues.
+// Keeps a log of origin + request and echoes permissive CORS headers so
+// we can determine whether the request reaches the Node process or is
+// blocked by an upstream proxy/CDN. Remove after debugging.
+app.use((req, res, next) => {
+  const origin = req.headers.origin || '*';
+  console.log(`[CORS-DEBUG] ${req.method} ${req.path} — origin=${origin}`);
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.use(cors(corsOptions));
 
-// Explicit OPTIONS preflight handler — must come before route definitions.
-// Without this, browsers that send a preflight for PATCH/DELETE/custom-headers
-// never receive the Access-Control-Allow-* headers and block the real request.
-app.options("*", cors(corsOptions));
+// NOTE: OPTIONS preflight is handled by the debug middleware above.
 
 // Per-request backend logger (method, path, origin)
 app.use((req, _res, next) => {
