@@ -88,13 +88,17 @@ const corsOptions = {
 // Keeps a log of origin + request and echoes permissive CORS headers so
 // we can determine whether the request reaches the Node process or is
 // blocked by an upstream proxy/CDN. Remove after debugging.
+// Production-safe CORS handler: set Access-Control headers for allowed origins
+// and respond to preflight OPTIONS before other middleware. This runs before
+// other middleware so OPTIONS and error responses carry the necessary headers.
 app.use((req, res, next) => {
-  const origin = req.headers.origin || '*';
-  console.log(`[CORS-DEBUG] ${req.method} ${req.path} — origin=${origin}`);
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
