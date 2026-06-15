@@ -402,7 +402,7 @@ router.get("/directory/users", protect, authorizeAdminOrHR, getRolePermissionUse
 router.get("/dashboard/users-summary", protect, authorize("admin"), getDashboardUsersSummary);
 router.get("/role-permissions/users", protect, adminOnly, getRolePermissionUsers);
 router.patch("/role-permissions/users/:id", protect, adminOnly, updateUserRolePermissions);
-router.patch(
+router.post(
   "/role-permissions/templates",
   protect,
   authorize("admin", "master"),
