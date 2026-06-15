@@ -518,7 +518,7 @@ router.delete("/employee/:id", protect, authorize("admin", "manager", "hr"), del
  *       500:
  *         description: Server error
  */
-router.get("/profile/me", protect, authorize("admin"), getAdminProfile);
+router.get("/profile/me", protect, authorize("admin", "master"), getAdminProfile);
 
 /**
  * @swagger
@@ -546,7 +546,7 @@ router.get("/profile/me", protect, authorize("admin"), getAdminProfile);
  *       500:
  *         description: Server error
  */
-router.patch("/profile/me", protect, authorize("admin"), updateAdminProfile);
+router.patch("/profile/me", protect, authorize("admin", "master"), updateAdminProfile);
 
 /**
  * @swagger
@@ -574,6 +574,6 @@ router.patch("/profile/me", protect, authorize("admin"), updateAdminProfile);
  *       500:
  *         description: Server error
  */
-router.patch("/profile/me/password", protect, authorize("admin"), changeAdminPassword);
+router.patch("/profile/me/password", protect, authorize("admin", "master"), changeAdminPassword);
 
 module.exports = router;
