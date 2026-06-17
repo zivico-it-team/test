@@ -56,15 +56,6 @@ const parseOrigins = (value = "") =>
     .map((origin) => origin.trim().replace(/\/+$/, ""))
     .filter(Boolean);
 
-const revoraglobalOriginPattern = /^https:\/\/(?:.+\.)?revoraglobal\.com$/i;
-
-const isOriginAllowed = (origin) => {
-  if (!origin) return true;
-  if (allowedOrigins.includes(origin)) return true;
-  if (revoraglobalOriginPattern.test(origin)) return true;
-  return false;
-};
-
 const allowedOrigins = Array.from(
   new Set([
     // Production CRM frontend — must always be present
@@ -76,6 +67,15 @@ const allowedOrigins = Array.from(
     ...parseOrigins(process.env.CLIENT_URL), // backward compatibility
   ])
 );
+
+const revoraglobalOriginPattern = /^https:\/\/(?:.+\.)?revoraglobal\.com$/i;
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (revoraglobalOriginPattern.test(origin)) return true;
+  return false;
+};
 
 const corsOptions = {
   origin(origin, callback) {
@@ -91,30 +91,8 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-// Apply CORS to every route — this adds Access-Control-* headers to all responses
-// including error responses, so the browser can read error bodies cross-origin.
-// Temporary debug middleware to help diagnose preflight issues.
-// Keeps a log of origin + request and echoes permissive CORS headers so
-// we can determine whether the request reaches the Node process or is
-// blocked by an upstream proxy/CDN. Remove after debugging.
-// Production-safe CORS handler: set Access-Control headers for allowed origins
-// and respond to preflight OPTIONS before other middleware. This runs before
-// other middleware so OPTIONS and error responses carry the necessary headers.
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && isOriginAllowed(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-  }
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
-
 app.use(cors(corsOptions));
-
-// NOTE: OPTIONS preflight is handled by the debug middleware above.
+app.options("*", cors(corsOptions));
 
 // Per-request backend logger (method, path, origin)
 app.use((req, _res, next) => {
