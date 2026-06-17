@@ -56,6 +56,15 @@ const parseOrigins = (value = "") =>
     .map((origin) => origin.trim().replace(/\/+$/, ""))
     .filter(Boolean);
 
+const revoraglobalOriginPattern = /^https:\/\/(?:.+\.)?revoraglobal\.com$/i;
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (revoraglobalOriginPattern.test(origin)) return true;
+  return false;
+};
+
 const allowedOrigins = Array.from(
   new Set([
     // Production CRM frontend — must always be present
@@ -72,7 +81,7 @@ const corsOptions = {
   origin(origin, callback) {
     // Allow non-browser requests (curl / postman / server-to-server)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (isOriginAllowed(origin)) return callback(null, true);
     console.warn(`[CORS] Blocked request from unlisted origin: ${origin}`);
     return callback(new Error("Not allowed by CORS"));
   },
@@ -93,7 +102,7 @@ const corsOptions = {
 // other middleware so OPTIONS and error responses carry the necessary headers.
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && isOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
