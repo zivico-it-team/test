@@ -15,6 +15,7 @@ const uploadsRoute = String(process.env.UPLOADS_ROUTE || "/uploads").trim() || "
 
 fs.mkdirSync(uploadsDir, { recursive: true });
 
+
 module.exports = {
   uploadsDir,
   uploadsRoute,
