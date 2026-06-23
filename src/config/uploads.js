@@ -1,26 +1,21 @@
 const fs = require("fs");
 const path = require("path");
 
-const DEFAULT_UPLOADS_DIR = path.resolve(__dirname, "../../uploads");
+const productionUploadsDir = "/home/u512178113/user_uploads";
+const localUploadsDir = path.resolve(__dirname, "../../uploads");
 
-const normalizeUploadsDir = (value) => {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    return DEFAULT_UPLOADS_DIR;
-  }
+const uploadsDir = path.resolve(
+  String(
+    process.env.UPLOADS_DIR ||
+      (process.env.NODE_ENV === "production" ? productionUploadsDir : localUploadsDir)
+  ).trim()
+);
 
-  return path.isAbsolute(raw)
-    ? path.normalize(raw)
-    : path.resolve(__dirname, "../../", raw);
-};
+const uploadsRoute = String(process.env.UPLOADS_ROUTE || "/uploads").trim() || "/uploads";
 
-const uploadsDir = normalizeUploadsDir(process.env.UPLOADS_DIR);
-
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+fs.mkdirSync(uploadsDir, { recursive: true });
 
 module.exports = {
   uploadsDir,
-  uploadsRoute: "/uploads",
+  uploadsRoute,
 };
