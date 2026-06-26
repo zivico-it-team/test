@@ -12,6 +12,7 @@ const {
   updateStage,
   listTimeline,
   addComment,
+  updateComment,
   listDueReminders,
   markReminderHandled,
   deleteLead,
@@ -37,6 +38,7 @@ router.get("/reminders/due", protect, forbidHRLeadAccess, authorize("admin", "ma
 router.patch("/:id/reminder/handled", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), markReminderHandled);
 router.get("/:id/timeline", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), listTimeline);
 router.post("/:id/comments", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), addComment);
+router.put("/:id/comments/:commentId", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), updateComment);
 
 router.patch("/:id/bookmark", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), toggleBookmark);
 router.patch("/:id/archive", protect, forbidHRLeadAccess, authorize("admin", "manager", "employee"), toggleArchive);

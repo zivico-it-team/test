@@ -1266,6 +1266,82 @@ const addComment = async (req, res) => {
   }
 };
 
+const updateComment = async (req, res) => {
+  try {
+    const lead = await ensureLead(req.params.id, res);
+    if (!lead) return;
+
+    const comment = String(req.body?.comment || "").trim();
+    if (!comment) {
+      return res.status(400).json({ message: "Comment is required" });
+    }
+
+    const commentId = String(req.params.commentId || "").trim();
+    const baseCommentId = `base-${lead.id}`;
+
+    if (commentId === baseCommentId) {
+      const { lead: updatedLead } = await persistLeadChanges(lead, { comment });
+      return res.json({
+        comment: {
+          id: baseCommentId,
+          action: "Comment Added",
+          details: comment,
+          changedBy: lead.uploadedBy || lead.assignedTo || "System",
+          at: updatedLead?.updatedAt || new Date(),
+          changedByAvatar: "",
+          changedByProfileImageUrl: "",
+          changedByProfileImageVersion: null,
+        },
+        lead: await mapLeadWithDerivedStatus(updatedLead),
+      });
+    }
+
+    await ensureLeadTimelineReady();
+    const timelineComment = await LeadTimeline.findOne({
+      where: {
+        id: commentId,
+        leadId: lead.id,
+        action: "Comment Added",
+      },
+    });
+
+    if (!timelineComment) {
+      return res.status(404).json({ message: "Comment not found" });
+    }
+
+    await timelineComment.update({
+      details: comment,
+      changedAt: new Date(),
+    });
+
+    const latestComment = await LeadTimeline.findOne({
+      where: {
+        leadId: lead.id,
+        action: "Comment Added",
+      },
+      order: [
+        ["changedAt", "DESC"],
+        ["createdAt", "DESC"],
+      ],
+    });
+
+    let updatedLead = lead;
+    if (String(latestComment?.id || "") === String(timelineComment.id)) {
+      const persisted = await persistLeadChanges(lead, { comment });
+      updatedLead = persisted.lead;
+    }
+
+    return res.json({
+      comment: mapTimeline(timelineComment, req?.user || null),
+      lead: await mapLeadWithDerivedStatus(updatedLead),
+    });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to update comment" });
+  }
+};
+
 const listDueReminders = async (req, res) => {
   try {
     const userId = String(req.user?._id || req.user?.id || "");
@@ -1794,6 +1870,7 @@ module.exports = {
   updateStage,
   listTimeline,
   addComment,
+  updateComment,
   listDueReminders,
   markReminderHandled,
   deleteLead,
