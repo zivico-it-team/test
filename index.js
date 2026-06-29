@@ -84,6 +84,7 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
+
 // Apply CORS to every route — this adds Access-Control-* headers to all responses
 // including error responses, so the browser can read error bodies cross-origin.
 // Temporary debug middleware to help diagnose preflight issues.
