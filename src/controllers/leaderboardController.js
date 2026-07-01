@@ -95,7 +95,7 @@ const getRankedLeaderboard = async (
   const [employees, performances] = await Promise.all([
       User.findAll({
         where: { role: "employee" },
-        attributes: ["id", "name", "email", "role", "professional", "updatedAt"],
+        attributes: ["id", "name", "userName", "email", "role", "professional", "updatedAt"],
         order: [["name", "ASC"]],
         transaction,
       }),
@@ -128,6 +128,7 @@ const getRankedLeaderboard = async (
         _id: employee.id,
         id: employee.id,
         name: employee.name || "Employee",
+        userName: employee.userName || "",
         email: employee.email || "",
         role: employee.role || "employee",
         employeeCode: getProfessional(employee)?.employeeId || "",
@@ -412,7 +413,7 @@ const updatePerformance = async (req, res) => {
 
     const employee = await User.findOne({
       where: { id: employeeId, role: "employee" },
-      attributes: ["id", "name", "email", "role", "professional"],
+      attributes: ["id", "name", "userName", "email", "role", "professional"],
     });
 
     if (!employee) {
@@ -468,6 +469,7 @@ const updatePerformance = async (req, res) => {
         _id: e.id,
         id: e.id,
         name: e.name || "Employee",
+        userName: e.userName || "",
         email: e.email || "",
         role: e.role || "employee",
         employeeCode: getProfessional(e)?.employeeId || "",
