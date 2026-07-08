@@ -62,7 +62,7 @@ const allowedOrigins = Array.from(
     "https://crm.revoraglobal.com",
     "https://revoraglobal.com",
     "https://api.revoraglobal.com",
-   " https://revoraglobal.netlify.app",
+    "https://revoraglobal.netlify.app",
     ...(process.env.NODE_ENV === "production"
       ? []
       : ["http://localhost:5173", "http://localhost:5174", "http://localhost:8081"]),

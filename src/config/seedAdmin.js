@@ -10,6 +10,7 @@ const isEnabled = (value, fallback = false) => {
   return ["1", "true", "yes", "on"].includes(normalized);
 };
 
+
 const allowedRoles = new Set(["admin", "master", "hr", "manager", "employee"]);
 
 const getBootstrapRole = () => {

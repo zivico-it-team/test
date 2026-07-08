@@ -7,6 +7,7 @@ const poolMax = Math.max(1, Number(process.env.MYSQL_POOL_MAX || 3));
 const poolMin = Math.max(0, Number(process.env.MYSQL_POOL_MIN || 0));
 const poolAcquire = Math.max(5000, Number(process.env.MYSQL_POOL_ACQUIRE_MS || 60000));
 const poolIdle = Math.max(10000, Number(process.env.MYSQL_POOL_IDLE_MS || 300000));
+   
 
 const GLOBAL_SEQUELIZE_KEY = "__zivico_mysql_sequelize__";
 const GLOBAL_DB_STATE_KEY = "__zivico_mysql_db_state__";
