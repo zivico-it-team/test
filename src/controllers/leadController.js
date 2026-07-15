@@ -188,21 +188,39 @@ const decorateLeadWithDerivedStatus = (lead, hasLeadDetailUpdates = false) => {
   };
 };
 
-const buildLeadDetailUpdateLookup = async (leadIds = []) => {
-  const ids = Array.from(
-    new Set((leadIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
-  );
-
-  if (ids.length === 0) {
+const buildLeadDetailUpdateLookup = async (leadsOrIds = []) => {
+  const items = Array.isArray(leadsOrIds) ? leadsOrIds : [];
+  if (items.length === 0) {
     return new Set();
   }
 
   await ensureLeadTimelineReady();
 
+  const conditions = items.map((item) => {
+    const isObject = item && typeof item === "object";
+    const leadId = String((isObject ? (item.id || item._id) : item) || "").trim();
+    const assignedDate = isObject ? item.assignedDate : null;
+
+    if (!leadId) return null;
+
+    if (assignedDate) {
+      return {
+        leadId,
+        createdAt: { [Op.gte]: new Date(assignedDate) },
+      };
+    }
+
+    return { leadId };
+  }).filter(Boolean);
+
+  if (conditions.length === 0) {
+    return new Set();
+  }
+
   const rows = await LeadTimeline.findAll({
     where: {
-      leadId: { [Op.in]: ids },
       action: { [Op.in]: DETAIL_UPDATE_TIMELINE_ACTIONS },
+      [Op.or]: conditions,
     },
     attributes: ["leadId"],
     group: ["leadId"],
@@ -217,19 +235,17 @@ const buildLeadDetailUpdateLookup = async (leadIds = []) => {
 const mapLeadWithDerivedStatus = async (lead) => {
   const leadId = String(lead?.id || lead?._id || "").trim();
   const updatedLeadLookup = await buildLeadDetailUpdateLookup(
-    leadId ? [leadId] : [],
+    lead ? [lead] : [],
   );
 
   return decorateLeadWithDerivedStatus(lead, updatedLeadLookup.has(leadId));
 };
 
 const mapLeadListWithDerivedStatus = async (leads = []) => {
-  const leadIds = (Array.isArray(leads) ? leads : [])
-    .map((lead) => String(lead?.id || lead?._id || "").trim())
-    .filter(Boolean);
-  const updatedLeadLookup = await buildLeadDetailUpdateLookup(leadIds);
+  const safeLeads = Array.isArray(leads) ? leads : [];
+  const updatedLeadLookup = await buildLeadDetailUpdateLookup(safeLeads);
 
-  return (Array.isArray(leads) ? leads : []).map((lead) => {
+  return safeLeads.map((lead) => {
     const leadId = String(lead?.id || lead?._id || "").trim();
     return decorateLeadWithDerivedStatus(lead, updatedLeadLookup.has(leadId));
   });
@@ -1730,13 +1746,14 @@ const buildAssignLeadWhere = async ({
 
 const getAssignStats = async (_req, res) => {
   try {
-    const [total, assigned, unassigned] = await Promise.all([
+    const [total, assigned, unassigned, newLeads] = await Promise.all([
       Lead.count(),
       Lead.count({ where: isAssignedWhere }),
       Lead.count({ where: isUnassignedWhere }),
+      Lead.count({ where: isNewWhere }),
     ]);
 
-    return res.json({ total, assigned, unassigned });
+    return res.json({ total, assigned, unassigned, new: newLeads });
   } catch (err) {
     return res
       .status(500)
