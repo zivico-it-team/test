@@ -609,6 +609,37 @@ const runBootstrapMigrations = async () => {
   }
 
   const leadTable = await queryInterface.describeTable("leads").catch(() => null);
+  const complianceComplaintsTable = await queryInterface
+    .describeTable("compliance_complaints")
+    .catch(() => null);
+  if (!complianceComplaintsTable) {
+    await queryInterface.createTable("compliance_complaints", {
+      id: { type: DataTypes.UUID, allowNull: false, primaryKey: true },
+      reportedById: { type: DataTypes.UUID, allowNull: false },
+      reportedByName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: "" },
+      targets: { type: DataTypes.JSON, allowNull: false },
+      complaint: { type: DataTypes.TEXT, allowNull: false },
+      createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: Sequelize.literal("CURRENT_TIMESTAMP") },
+      updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: Sequelize.literal("CURRENT_TIMESTAMP") },
+    });
+    await queryInterface.addIndex("compliance_complaints", ["reportedById"]);
+    console.log("compliance_complaints table created");
+  }
+  const itDailyWorkTable = await queryInterface.describeTable("it_daily_work").catch(() => null);
+  if (!itDailyWorkTable) {
+    await queryInterface.createTable("it_daily_work", {
+      id: { type: DataTypes.UUID, allowNull: false, primaryKey: true },
+      submittedById: { type: DataTypes.UUID, allowNull: false },
+      submittedByName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: "" },
+      workDate: { type: DataTypes.DATEONLY, allowNull: false },
+      workItems: { type: DataTypes.JSON, allowNull: false },
+      createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: Sequelize.literal("CURRENT_TIMESTAMP") },
+      updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: Sequelize.literal("CURRENT_TIMESTAMP") },
+    });
+    await queryInterface.addIndex("it_daily_work", ["submittedById"]);
+    await queryInterface.addIndex("it_daily_work", ["workDate"]);
+    console.log("it_daily_work table created");
+  }
   if (!leadTable) {
     return;
   }

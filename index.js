@@ -147,6 +147,8 @@ app.use("/api/team", require("./src/routes/teamRoutes"));
 app.use("/api/attendance-tracker", require("./src/routes/attendanceTrackerRoutes"));
 app.use("/api/hierarchy", require("./src/routes/hierarchyRoutes"));
 app.use("/api/leads", require("./src/routes/leadRoutes"));
+app.use("/api/compliance", require("./src/routes/complianceRoutes"));
+app.use("/api/it-daily-work", require("./src/routes/itDailyWorkRoutes"));
 
 app.use(
   uploadsRoute,
@@ -190,7 +192,7 @@ app.use((err, req, res, next) => {
   return res.status(status).json({ message });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 let serverStarted = false;
 
 const listenOnce = (suffix = "") => {

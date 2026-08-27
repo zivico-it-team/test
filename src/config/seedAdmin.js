@@ -150,6 +150,54 @@ const seedOptionalSupportUsers = async () => {
   }
 };
 
+// Local dashboard-check accounts. These are separate from real staff accounts,
+// so existing employee usernames and passwords are never changed.
+const seedTemporaryDashboardUsers = async () => {
+  const enabled = isEnabled(
+    process.env.ENABLE_TEMPORARY_DASHBOARD_ACCOUNTS,
+    process.env.NODE_ENV !== "production"
+  );
+  if (!enabled) return;
+
+  const password = process.env.TEMPORARY_DASHBOARD_PASSWORD || "Temp@2026";
+  const accounts = [
+    { role: "master", name: "Temporary Master", userName: "temp.master", department: "Management" },
+    { role: "admin", name: "Temporary Admin", userName: "temp.admin", department: "Administration" },
+    { role: "manager", name: "Temporary Sales Manager", userName: "temp.manager", department: "Sales" },
+    { role: "employee", name: "Temporary Compliance Employee", userName: "temp.compliance", department: "Compliance" },
+    { role: "employee", name: "Temporary Compliance Employee", userName: "temp.employee", department: "Compliance" },
+    { role: "manager", name: "Temporary IT Manager", userName: "temp.it.manager", department: "IT" },
+    { role: "employee", name: "Temporary IT Employee", userName: "temp.it.employee", department: "IT" },
+  ];
+
+  for (const account of accounts) {
+    const email = `${account.userName}@temporary.local`;
+    const existing = await User.findOne({ where: { [Op.or]: [{ email }, { userName: account.userName }] } });
+    if (existing) {
+      // Keep the original temporary employee login usable for Compliance tests.
+      if (["temp.employee", "temp.it.manager", "temp.it.employee"].includes(account.userName)) {
+        await existing.update({
+          name: account.name,
+          professional: { department: account.department, designation: "Temporary dashboard access" },
+        });
+      }
+      continue;
+    }
+
+    await User.create({
+      name: account.name,
+      email,
+      userName: account.userName,
+      password: await bcrypt.hash(password, 10),
+      role: account.role,
+      professional: { department: account.department, designation: "Temporary dashboard access" },
+      approvalStatus: "approved",
+      approvedAt: new Date(),
+    });
+    console.log(`Temporary ${account.role} dashboard account created: ${account.userName}`);
+  }
+};
+
 const seedSystemUsers = async () => {
   try {
     const bootstrapUser = await seedBootstrapUser();
@@ -158,6 +206,7 @@ const seedSystemUsers = async () => {
     }
 
     await seedOptionalSupportUsers();
+    await seedTemporaryDashboardUsers();
   } catch (error) {
     console.error("System user seed failed", error.message);
   }
