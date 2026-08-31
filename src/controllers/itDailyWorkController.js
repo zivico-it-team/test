@@ -5,6 +5,15 @@ const professionalOf = (user) => {
   if (user?.professional && typeof user.professional === "object") return user.professional;
   try { return JSON.parse(user?.professional || "{}"); } catch (_) { return {}; }
 };
+const workItemsOf = (record) => {
+  const raw = record?.workItems;
+  if (Array.isArray(raw)) return raw;
+  try { return Array.isArray(JSON.parse(raw || "[]")) ? JSON.parse(raw) : []; } catch (_) { return []; }
+};
+const toWorkResponse = (record) => {
+  const data = typeof record?.toJSON === "function" ? record.toJSON() : record;
+  return { ...data, workItems: workItemsOf(data) };
+};
 const departmentOf = (user) => value(professionalOf(user).department || professionalOf(user).teamName || user?.department);
 const isItEmployee = (user) => value(user?.role) === "employee" && departmentOf(user) === "it";
 const canReviewAll = (user) => ["admin", "master"].includes(value(user?.role)) || (value(user?.role) === "manager" && departmentOf(user) === "it");
@@ -19,7 +28,7 @@ const listWork = async (req, res) => {
   try {
     const where = canReviewAll(req.user) ? {} : { submittedById: req.user.id };
     const records = await ItDailyWork.findAll({ where, order: [["workDate", "DESC"], ["createdAt", "DESC"]] });
-    res.json(records);
+    res.json(records.map(toWorkResponse));
   } catch (_) { res.status(500).json({ message: "Failed to load IT daily work" }); }
 };
 
@@ -32,7 +41,7 @@ const createWork = async (req, res) => {
   if (workItems.length > 100) return res.status(400).json({ message: "A maximum of 100 work items can be submitted at once" });
   try {
     const record = await ItDailyWork.create({ submittedById: req.user.id, submittedByName: req.user.name || req.user.userName || "IT employee", workDate, workItems });
-    res.status(201).json(record);
+    res.status(201).json(toWorkResponse(record));
   } catch (_) { res.status(500).json({ message: "Failed to submit IT daily work" }); }
 };
 
