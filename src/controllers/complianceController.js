@@ -26,6 +26,15 @@ const isActiveEmployee = (user) => {
   const professional = professionalOf(user);
   return value(professional.employmentStatus || user?.employmentStatus || user?.status || "active") !== "inactive";
 };
+const targetsOf = (record) => {
+  const raw = record?.targets;
+  if (Array.isArray(raw)) return raw;
+  try { return Array.isArray(JSON.parse(raw || "[]")) ? JSON.parse(raw) : []; } catch (_) { return []; }
+};
+const toComplaintResponse = (record) => {
+  const data = typeof record?.toJSON === "function" ? record.toJSON() : record;
+  return { ...data, targets: targetsOf(data) };
+};
 const isComplianceEmployee = (user) =>
   value(user?.role) === "employee" && departmentOf(user) === "compliance";
 const canReviewAll = (user) => {
@@ -70,7 +79,7 @@ const listComplaints = async (req, res) => {
   try {
     const where = canReviewAll(req.user) ? {} : { reportedById: req.user.id };
     const complaints = await ComplianceComplaint.findAll({ where, order: [["createdAt", "DESC"]] });
-    res.json(complaints);
+    res.json(complaints.map(toComplaintResponse));
   } catch (error) {
     res.status(500).json({ message: "Failed to load complaints" });
   }
@@ -115,7 +124,7 @@ const createComplaint = async (req, res) => {
       targets: [targetsById.get(entry.targetId)],
       complaint: entry.complaint,
     })));
-    return res.status(201).json(records);
+    return res.status(201).json(records.map(toComplaintResponse));
   } catch (error) {
     return res.status(500).json({ message: "Failed to submit complaint" });
   }
