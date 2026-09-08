@@ -625,6 +625,30 @@ const runBootstrapMigrations = async () => {
     await queryInterface.addIndex("compliance_complaints", ["reportedById"]);
     console.log("compliance_complaints table created");
   }
+  const complianceComplaintCommentsTable = await queryInterface
+    .describeTable("compliance_complaint_comments")
+    .catch(() => null);
+  if (!complianceComplaintCommentsTable) {
+    await queryInterface.createTable("compliance_complaint_comments", {
+      id: { type: DataTypes.UUID, allowNull: false, primaryKey: true },
+      complaintId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: "compliance_complaints", key: "id" },
+        onUpdate: "CASCADE",
+        onDelete: "CASCADE",
+      },
+      authorId: { type: DataTypes.UUID, allowNull: false },
+      authorName: { type: DataTypes.STRING(120), allowNull: false, defaultValue: "" },
+      authorDepartment: { type: DataTypes.STRING(80), allowNull: false, defaultValue: "" },
+      comment: { type: DataTypes.TEXT, allowNull: false },
+      createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: Sequelize.literal("CURRENT_TIMESTAMP") },
+      updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: Sequelize.literal("CURRENT_TIMESTAMP") },
+    });
+    await queryInterface.addIndex("compliance_complaint_comments", ["complaintId", "createdAt"]);
+    await queryInterface.addIndex("compliance_complaint_comments", ["authorId"]);
+    console.log("compliance_complaint_comments table created");
+  }
   const itDailyWorkTable = await queryInterface.describeTable("it_daily_work").catch(() => null);
   if (!itDailyWorkTable) {
     await queryInterface.createTable("it_daily_work", {

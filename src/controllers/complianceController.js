@@ -1,5 +1,6 @@
 const { Op } = require("sequelize");
 const ComplianceComplaint = require("../models/ComplianceComplaint");
+const ComplianceComplaintComment = require("../models/ComplianceComplaintComment");
 const User = require("../models/User");
 
 const value = (item) => String(item || "").trim().toLowerCase();
@@ -31,18 +32,20 @@ const targetsOf = (record) => {
   if (Array.isArray(raw)) return raw;
   try { return Array.isArray(JSON.parse(raw || "[]")) ? JSON.parse(raw) : []; } catch (_) { return []; }
 };
-const toComplaintResponse = (record) => {
+const toComplaintResponse = (record, comments = []) => {
   const data = typeof record?.toJSON === "function" ? record.toJSON() : record;
-  return { ...data, targets: targetsOf(data) };
+  return { ...data, targets: targetsOf(data), comments };
 };
 const isComplianceEmployee = (user) =>
   value(user?.role) === "employee" && departmentOf(user) === "compliance";
 const canReviewAll = (user) => {
   const role = value(user?.role);
   return ["admin", "master"].includes(role) ||
-    (role === "manager" && ["compliance", "sales"].includes(departmentOf(user)));
+    (role === "manager" && ["compliance", "sales", "retention"].includes(departmentOf(user)));
 };
 const canUseCompliance = (user) => isComplianceEmployee(user) || canReviewAll(user);
+const canCommentOnComplaints = (user) =>
+  value(user?.role) === "manager" && ["sales", "retention"].includes(departmentOf(user));
 
 const requireComplianceAccess = (req, res) => {
   if (!canUseCompliance(req.user)) {
@@ -79,7 +82,23 @@ const listComplaints = async (req, res) => {
   try {
     const where = canReviewAll(req.user) ? {} : { reportedById: req.user.id };
     const complaints = await ComplianceComplaint.findAll({ where, order: [["createdAt", "DESC"]] });
-    res.json(complaints.map(toComplaintResponse));
+    const complaintIds = complaints.map((complaint) => complaint.id);
+    const comments = complaintIds.length
+      ? await ComplianceComplaintComment.findAll({
+        where: { complaintId: { [Op.in]: complaintIds } },
+        order: [["createdAt", "ASC"]],
+      })
+      : [];
+    const commentsByComplaint = new Map();
+    comments.forEach((comment) => {
+      const commentData = comment.toJSON();
+      const existing = commentsByComplaint.get(String(commentData.complaintId)) || [];
+      existing.push(commentData);
+      commentsByComplaint.set(String(commentData.complaintId), existing);
+    });
+    res.json(complaints.map((complaint) =>
+      toComplaintResponse(complaint, commentsByComplaint.get(String(complaint.id)) || []),
+    ));
   } catch (error) {
     res.status(500).json({ message: "Failed to load complaints" });
   }
@@ -130,4 +149,37 @@ const createComplaint = async (req, res) => {
   }
 };
 
-module.exports = { getSalesEmployees, listComplaints, createComplaint };
+const createComplaintComment = async (req, res) => {
+  if (!requireComplianceAccess(req, res)) return;
+  if (!canCommentOnComplaints(req.user)) {
+    return res.status(403).json({ message: "Only Sales and Retention managers can comment on complaints" });
+  }
+
+  const complaintId = String(req.params?.complaintId || "").trim();
+  const commentText = String(req.body?.comment || "").trim();
+  if (!commentText) {
+    return res.status(400).json({ message: "Comment text is required" });
+  }
+  if (commentText.length > 5000) {
+    return res.status(400).json({ message: "A comment cannot exceed 5000 characters" });
+  }
+
+  try {
+    const complaint = await ComplianceComplaint.findByPk(complaintId, { attributes: ["id"] });
+    if (!complaint) {
+      return res.status(404).json({ message: "Complaint not found" });
+    }
+    const comment = await ComplianceComplaintComment.create({
+      complaintId: complaint.id,
+      authorId: req.user.id,
+      authorName: req.user.name || req.user.userName || "Manager",
+      authorDepartment: departmentOf(req.user),
+      comment: commentText,
+    });
+    return res.status(201).json(comment.toJSON());
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to add complaint comment" });
+  }
+};
+
+module.exports = { getSalesEmployees, listComplaints, createComplaint, createComplaintComment };
