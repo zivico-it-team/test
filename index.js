@@ -72,6 +72,7 @@ const allowedOrigins = Array.from(
   ])
 );
 
+
 const corsOptions = {
   origin(origin, callback) {
     // Allow non-browser requests (curl / postman / server-to-server)
