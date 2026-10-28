@@ -1163,24 +1163,28 @@ const updateTag = async (req, res) => {
     const previousTag = String(lead.tag || "New Lead").trim();
     const nextTag = String(req.body?.tag || lead.tag || "New Lead").trim();
 
-    const { lead: updatedLead, sanitizedValues } = await persistLeadChanges(lead, {
+    const now = new Date();
+    lead.setDataValue("updatedAt", now);
+    lead.changed("updatedAt", true);
+
+    const { lead: updatedLead } = await persistLeadChanges(lead, {
       tag: nextTag,
+      updatedAt: now,
     });
 
-    let timelineEntry = null;
-    if (sanitizedValues.tag !== undefined && previousTag !== nextTag) {
-      timelineEntry = await addLeadTimeline({
-        req,
-        leadId: lead.id,
-        action: "Tag Updated",
-        details: `Lead tag changed from "${previousTag}" to "${nextTag}"`,
-      });
-    }
+    const isSameTag = previousTag.toLowerCase() === nextTag.toLowerCase();
+    const timelineDetails = isSameTag
+      ? `Lead tag confirmed as "${nextTag}"`
+      : `Lead tag changed from "${previousTag}" to "${nextTag}"`;
 
-    const leadResponse =
-      sanitizedValues.tag !== undefined && previousTag !== nextTag
-        ? decorateLeadWithDerivedStatus(updatedLead, true)
-        : await mapLeadWithDerivedStatus(updatedLead);
+    const timelineEntry = await addLeadTimeline({
+      req,
+      leadId: lead.id,
+      action: "Tag Updated",
+      details: timelineDetails,
+    });
+
+    const leadResponse = decorateLeadWithDerivedStatus(updatedLead, true);
 
     return res.json({ lead: leadResponse, timeline: timelineEntry });
   } catch (err) {
@@ -1197,24 +1201,28 @@ const updateStage = async (req, res) => {
     const previousStage = String(lead.stage || "New").trim();
     const nextStage = String(req.body?.stage || lead.stage || "New").trim();
 
-    const { lead: updatedLead, sanitizedValues } = await persistLeadChanges(lead, {
+    const now = new Date();
+    lead.setDataValue("updatedAt", now);
+    lead.changed("updatedAt", true);
+
+    const { lead: updatedLead } = await persistLeadChanges(lead, {
       stage: nextStage,
+      updatedAt: now,
     });
 
-    let timelineEntry = null;
-    if (sanitizedValues.stage !== undefined && previousStage !== nextStage) {
-      timelineEntry = await addLeadTimeline({
-        req,
-        leadId: lead.id,
-        action: "Stage Updated",
-        details: `Lead stage changed from "${previousStage}" to "${nextStage}"`,
-      });
-    }
+    const isSameStage = previousStage.toLowerCase() === nextStage.toLowerCase();
+    const timelineDetails = isSameStage
+      ? `Lead stage confirmed as "${nextStage}"`
+      : `Lead stage changed from "${previousStage}" to "${nextStage}"`;
 
-    const leadResponse =
-      sanitizedValues.stage !== undefined && previousStage !== nextStage
-        ? decorateLeadWithDerivedStatus(updatedLead, true)
-        : await mapLeadWithDerivedStatus(updatedLead);
+    const timelineEntry = await addLeadTimeline({
+      req,
+      leadId: lead.id,
+      action: "Stage Updated",
+      details: timelineDetails,
+    });
+
+    const leadResponse = decorateLeadWithDerivedStatus(updatedLead, true);
 
     return res.json({ lead: leadResponse, timeline: timelineEntry });
   } catch (err) {
