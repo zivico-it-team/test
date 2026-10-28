@@ -567,7 +567,7 @@ const pendingLeaves = async (req, res) => {
   try {
     const leaves = await Leave.findAll({
       where: { status: "pending" },
-      include: [{ model: User, as: "user", attributes: ["id", "name", "email", "role"] }],
+      include: [{ model: User, as: "user", attributes: ["id", "name", "email", "role", "profileImageUrl", "profileImageFileName", "updatedAt"] }],
       order: [["createdAt", "DESC"]],
     });
 

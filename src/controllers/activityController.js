@@ -40,6 +40,17 @@ exports.startActivity = async (req, res) => {
       return res.status(400).json({ message: "Another activity is already active", active: toActivityJson(active) });
     }
 
+    // Breaks (tea, lunch, prayer) can only be taken once per day
+    const SINGLE_USE_BREAK_TYPES = ["tea_break", "lunch_break", "prayer_time"];
+    if (SINGLE_USE_BREAK_TYPES.includes(type)) {
+      const alreadyTaken = await Activity.findOne({ where: { userId, dateKey, type } });
+      if (alreadyTaken) {
+        return res.status(400).json({
+          message: "You have already taken this break today. Breaks can only be taken once per day.",
+        });
+      }
+    }
+
     const activity = await Activity.create({
       userId,
       dateKey,

@@ -272,8 +272,8 @@ const adminLeaveList = async (req, res) => {
     const { count: total, rows } = await Leave.findAndCountAll({
       where,
       include: [
-        { model: User, as: "user", attributes: ["id", "name", "email", "role"] },
-        { model: User, as: "actionBy", attributes: ["id", "name", "email", "role"] },
+        { model: User, as: "user", attributes: ["id", "name", "email", "role", "profileImageUrl", "profileImageFileName", "updatedAt"] },
+        { model: User, as: "actionBy", attributes: ["id", "name", "email", "role", "profileImageUrl", "profileImageFileName", "updatedAt"] },
       ],
       order: [["createdAt", "DESC"]],
       offset,

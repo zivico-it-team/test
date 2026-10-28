@@ -95,7 +95,7 @@ const getRankedLeaderboard = async (
   const [employees, performances] = await Promise.all([
       User.findAll({
         where: { role: "employee" },
-        attributes: ["id", "name", "userName", "email", "role", "professional", "updatedAt"],
+        attributes: ["id", "name", "userName", "email", "role", "professional", "profileImageUrl", "profileImageFileName", "updatedAt"],
         order: [["name", "ASC"]],
         transaction,
       }),
@@ -135,6 +135,9 @@ const getRankedLeaderboard = async (
         designation: getProfessional(employee)?.designation || "",
         department: getDepartment(employee),
         employmentStatus,
+        profileImageUrl: employee.profileImageUrl || "",
+        profileImageFileName: employee.profileImageFileName || "",
+        avatar: employee.profileImageUrl || "",
         resignedDate: getProfessional(employee)?.resignedDate || null,
         employeeUpdatedAt: employee.updatedAt || null,
         target,
@@ -413,7 +416,7 @@ const updatePerformance = async (req, res) => {
 
     const employee = await User.findOne({
       where: { id: employeeId, role: "employee" },
-      attributes: ["id", "name", "userName", "email", "role", "professional"],
+      attributes: ["id", "name", "userName", "email", "role", "professional", "profileImageUrl", "profileImageFileName", "updatedAt"],
     });
 
     if (!employee) {

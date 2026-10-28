@@ -237,7 +237,7 @@ const managersList = async (req, res) => {
   try {
     const managers = await User.findAll({
       where: { role: "manager" },
-      attributes: ["id", "name", "email", "userName"],
+      attributes: ["id", "name", "email", "userName", "profileImageUrl", "profileImageFileName", "updatedAt"],
       order: [["name", "ASC"]],
     });
 

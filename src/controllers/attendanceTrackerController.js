@@ -302,7 +302,7 @@ const buildMonthlyTrackerData = async ({
 
   const allEmployees = await User.findAll({
     where: { role: "employee" },
-    attributes: ["id", "name", "email", "userName", "professional", "createdAt"],
+    attributes: ["id", "name", "email", "userName", "professional", "profileImageUrl", "profileImageFileName", "createdAt", "updatedAt"],
     order: [["name", "ASC"]],
   });
 
@@ -616,7 +616,7 @@ const dayDetails = async (req, res) => {
     const dk = toDateKey(dt);
 
     const emp = await User.findByPk(userId, {
-      attributes: ["id", "name", "email", "userName", "professional"],
+      attributes: ["id", "name", "email", "userName", "professional", "profileImageUrl", "profileImageFileName", "updatedAt"],
     });
 
     if (!emp) return res.status(404).json({ message: "Employee not found" });

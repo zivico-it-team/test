@@ -124,7 +124,7 @@ const getFileShare = async (req, res) => {
     const sharedWithUsers = ids.length
       ? await User.findAll({
           where: { id: { [Op.in]: ids } },
-          attributes: ["id", "name", "email", "role", "professional"],
+          attributes: ["id", "name", "email", "role", "professional", "profileImageUrl"],
         })
       : [];
 
